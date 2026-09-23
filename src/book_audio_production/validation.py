@@ -144,4 +144,5 @@ def validate_track(
         trim_start_sample=start_sample,
         trim_end_sample=end_sample,
         probe=probe,
+        limits=limits,
     )

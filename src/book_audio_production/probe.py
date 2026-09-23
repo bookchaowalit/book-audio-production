@@ -60,7 +60,7 @@ def probe_audio(source: Path, runner: CommandRunner) -> ProbeInfo:
         "-of",
         "json",
         "-show_entries",
-        "format=duration:stream=codec_type,codec_name,channels,sample_rate,duration",
+        "format=duration:stream=codec_type,codec_name,channels,sample_rate,duration,bits_per_raw_sample",
         "-protocol_whitelist",
         "file,pipe",
         "-i",
@@ -90,6 +90,8 @@ def probe_audio(source: Path, runner: CommandRunner) -> ProbeInfo:
             duration_value = payload.get("format", {}).get("duration")
         duration = float(duration_value)
         codec_name = stream["codec_name"]
+        raw_bits = stream.get("bits_per_raw_sample")
+        bits_per_raw_sample = int(raw_bits) if raw_bits not in (None, "N/A") else None
         file_bytes = source.stat().st_size
     except (AttributeError, KeyError, TypeError, ValueError, OSError):
         raise AudioError("UNSUPPORTED_STREAM", "Audio stream metadata is incomplete") from None
@@ -105,4 +107,4 @@ def probe_audio(source: Path, runner: CommandRunner) -> ProbeInfo:
         or file_bytes <= 0
     ):
         raise AudioError("UNSUPPORTED_STREAM", "Audio stream metadata is invalid")
-    return ProbeInfo(codec_name, channels, sample_rate, duration, file_bytes)
+    return ProbeInfo(codec_name, channels, sample_rate, duration, file_bytes, bits_per_raw_sample)

@@ -91,7 +91,8 @@ def parse_ebur128_measurement(stderr: str, duration_seconds: float) -> AudioMeas
 
     integrated = _finite_number(integrated_matches[-1]) if integrated_matches else None
     lra = _finite_number(lra_matches[-1]) if lra_matches else None
-    sample_peak = peak("Sample peak")
+    astats_peaks = re.findall(r"(?im)^\s*Peak level dB:\s*([^\s]+)\s*$", text)
+    sample_peak = _finite_number(astats_peaks[-1]) if astats_peaks else peak("Sample peak")
     true_peak = peak("True peak")
     if integrated is None or sample_peak is None or true_peak is None:
         raise _measurement_error()

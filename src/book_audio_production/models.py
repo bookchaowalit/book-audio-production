@@ -61,6 +61,7 @@ class ProbeInfo:
     sample_rate: int
     duration_seconds: float
     file_bytes: int
+    bits_per_raw_sample: int | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,7 @@ class ValidatedTrack:
     trim_start_sample: int
     trim_end_sample: int | None
     probe: ProbeInfo
+    limits: AudioLimits = AudioLimits()
 
 
 @dataclass(frozen=True)
