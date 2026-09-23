@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from book_audio_production.errors import AudioError
-from book_audio_production.models import AudioLimits, LoudnessTargets, TrackRequest, TrimRange
+from book_audio_production.models import AudioLimits, LoudnessTargets, ProbeInfo, TrackRequest, TrimRange
 from book_audio_production.validation import validate_roots, validate_track
 
 
@@ -106,3 +106,57 @@ def test_rejects_overlapping_input_and_output_roots(tmp_path: Path) -> None:
         validate_roots(root, root / "output")
 
     assert error.value.code == "UNSAFE_PATH"
+
+
+def test_validates_probe_metadata_and_converts_trim_to_samples(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "input"
+    root.mkdir()
+    (root / "sample.wav").write_bytes(b"audio")
+    monkeypatch.setattr(
+        "book_audio_production.probe.probe_audio",
+        lambda source, runner: ProbeInfo("pcm_s16le", 1, 44100, 2.0, 5),
+    )
+
+    validated = validate_track(request("sample.wav", TrimRange(11, 1000)), root, AudioLimits(), unreachable_runner)
+
+    assert validated.trim_start_sample == 485
+    assert validated.trim_end_sample == 44100
+    assert len(validated.source_sha256) == 64
+
+
+def test_probe_runner_obeys_reduced_local_limits(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "input"
+    root.mkdir()
+    (root / "sample.wav").write_bytes(b"audio")
+    observations = []
+
+    def limited_probe(source, runner):
+        runner(["ffprobe"], 30, 64 * 1024)
+        return ProbeInfo("pcm_s16le", 1, 44100, 2.0, 5)
+
+    def capturing_runner(argv, timeout_seconds, output_limit_bytes):
+        observations.append((timeout_seconds, output_limit_bytes))
+        return None
+
+    monkeypatch.setattr("book_audio_production.probe.probe_audio", limited_probe)
+    limits = AudioLimits(track_deadline_seconds=5, process_output_limit_bytes=64)
+
+    validate_track(request("sample.wav"), root, limits, capturing_runner)
+
+    assert observations == [(5, 64)]
+
+
+@pytest.mark.parametrize("channels", [0, 3])
+def test_rejects_unsupported_channel_counts(tmp_path: Path, monkeypatch, channels: int) -> None:
+    root = tmp_path / "input"
+    root.mkdir()
+    (root / "sample.wav").write_bytes(b"audio")
+    monkeypatch.setattr(
+        "book_audio_production.probe.probe_audio",
+        lambda source, runner: ProbeInfo("pcm_s16le", channels, 44100, 2.0, 5),
+    )
+
+    with pytest.raises(AudioError) as error:
+        validate_track(request("sample.wav"), root, AudioLimits(), unreachable_runner)
+
+    assert error.value.code == "UNSUPPORTED_STREAM"

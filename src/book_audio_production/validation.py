@@ -108,7 +108,14 @@ def validate_track(
 
     from .probe import probe_audio
 
-    probe = probe_audio(source_path, runner)
+    def bounded_runner(argv, timeout_seconds, output_limit_bytes):
+        return runner(
+            argv,
+            min(timeout_seconds, limits.track_deadline_seconds),
+            min(output_limit_bytes, limits.process_output_limit_bytes),
+        )
+
+    probe = probe_audio(source_path, bounded_runner)
     if probe.channels not in (1, 2) or probe.sample_rate <= 0:
         raise AudioError("UNSUPPORTED_STREAM", "Only mono or stereo audio streams are supported")
     if not math.isfinite(probe.duration_seconds) or probe.duration_seconds <= 0:

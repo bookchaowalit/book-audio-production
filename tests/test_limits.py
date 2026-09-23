@@ -1,7 +1,7 @@
 import pytest
 
 from book_audio_production.errors import AudioError
-from book_audio_production.limits import validate_limits
+from book_audio_production.limits import validate_batch_capacity, validate_limits
 from book_audio_production.models import AudioLimits
 
 
@@ -30,3 +30,20 @@ def test_rejects_invalid_or_over_cap_limits(limits: AudioLimits) -> None:
 def test_accepts_default_and_reduced_limits() -> None:
     validate_limits(AudioLimits())
     validate_limits(AudioLimits(max_tracks=2, max_source_bytes=1024, track_deadline_seconds=30))
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), -1, 28801])
+def test_rejects_invalid_or_over_cap_batch_duration(duration: float) -> None:
+    with pytest.raises(AudioError) as error:
+        validate_batch_capacity(1, duration, AudioLimits())
+
+    assert error.value.code == "RESOURCE_LIMIT_EXCEEDED"
+
+
+def test_batch_capacity_obeys_reduced_track_count_and_duration() -> None:
+    limits = AudioLimits(max_tracks=1, max_batch_seconds=20)
+
+    with pytest.raises(AudioError):
+        validate_batch_capacity(2, 10, limits)
+    with pytest.raises(AudioError):
+        validate_batch_capacity(1, 21, limits)

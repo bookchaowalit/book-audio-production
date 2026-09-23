@@ -1,0 +1,5 @@
+{
+  "schema_version": "audio-toolchain.v1",
+  "ffmpeg_version": "ffmpeg version 9.0.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "ffprobe_version": "ffprobe version 9.0.1-full_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers"
+}

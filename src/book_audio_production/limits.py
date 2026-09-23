@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import fields
 
 from .errors import AudioError
@@ -34,5 +35,7 @@ def validate_batch_capacity(track_count: int, source_seconds: float, limits: Aud
     validate_limits(limits)
     if track_count < 1 or track_count > limits.max_tracks:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Batch exceeds the configured track limit")
+    if not isinstance(source_seconds, (int, float)) or not math.isfinite(source_seconds):
+        raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Batch duration could not be measured")
     if source_seconds < 0 or source_seconds > limits.max_batch_seconds:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Batch exceeds the configured duration limit")

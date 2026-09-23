@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bookchaowalit.github.io/book-audio-production/audio-batch.v1.schema.json",
+  "$id": "urn:book-audio-production:audio-batch.v1",
   "title": "Audio batch v1",
   "type": "object",
   "additionalProperties": false,
