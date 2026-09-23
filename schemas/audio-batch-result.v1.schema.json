@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bookchaowalit.github.io/book-audio-production/audio-batch-result.v1.schema.json",
+  "title": "Audio batch result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "batch_id", "status", "recipe_version", "fingerprint", "ffmpeg_version", "ffprobe_version", "model_calls", "accepted_tracks", "rejected_tracks", "wall_seconds", "cpu_seconds", "measurement_status", "bytes_written", "monetary_cost", "cost_status", "replay", "tracks"],
+  "properties": {
+    "schema_version": {"const": "audio-batch-result.v1"},
+    "batch_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "status": {"enum": ["accepted", "rejected", "completed_with_errors"]},
+    "recipe_version": {"type": "string", "minLength": 1},
+    "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ffmpeg_version": {"type": ["string", "null"]},
+    "ffprobe_version": {"type": ["string", "null"]},
+    "model_calls": {"const": 0},
+    "accepted_tracks": {"type": "integer", "minimum": 0},
+    "rejected_tracks": {"type": "integer", "minimum": 0},
+    "wall_seconds": {"type": "number", "minimum": 0},
+    "cpu_seconds": {"type": ["number", "null"], "minimum": 0},
+    "measurement_status": {"enum": ["measured", "unavailable"]},
+    "bytes_written": {"type": "integer", "minimum": 0},
+    "monetary_cost": {"type": ["number", "null"], "minimum": 0},
+    "cost_status": {"enum": ["known", "unknown"]},
+    "replay": {"type": "boolean"},
+    "tracks": {"type": "array", "items": {"$ref": "#/$defs/trackResult"}}
+  },
+  "$defs": {
+    "trim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_ms": {"type": ["integer", "null"], "minimum": 0},
+        "end_ms": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integrated_lufs", "true_peak_dbtp", "lra_lu"],
+      "properties": {
+        "integrated_lufs": {"type": "number"},
+        "true_peak_dbtp": {"type": "number"},
+        "lra_lu": {"type": ["number", "null"]}
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integrated_lufs", "lra_lu", "sample_peak_dbfs", "true_peak_dbtp", "duration_seconds"],
+      "properties": {
+        "integrated_lufs": {"type": "number"},
+        "lra_lu": {"type": ["number", "null"]},
+        "sample_peak_dbfs": {"type": "number"},
+        "true_peak_dbtp": {"type": "number"},
+        "duration_seconds": {"type": "number", "minimum": 0}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"}
+      }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failures", "checks"],
+      "properties": {
+        "passed": {"type": "boolean"},
+        "failures": {"type": "array", "items": {"type": "string"}},
+        "checks": {"type": "object", "additionalProperties": {"type": "boolean"}}
+      }
+    },
+    "trackResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["track_id", "status", "source_relative", "source_sha256", "trim", "requested_targets", "pre_measurement", "post_measurement", "output_format", "output_relative_path", "output_sha256", "output_bytes", "normalization_type", "qa", "wall_seconds", "cpu_seconds", "measurement_status", "warnings", "error"],
+      "properties": {
+        "track_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+        "status": {"enum": ["accepted", "rejected"]},
+        "source_relative": {"type": ["string", "null"]},
+        "source_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "trim": {"anyOf": [{"$ref": "#/$defs/trim"}, {"type": "null"}]},
+        "requested_targets": {"$ref": "#/$defs/targets"},
+        "pre_measurement": {"anyOf": [{"$ref": "#/$defs/measurement"}, {"type": "null"}]},
+        "post_measurement": {"anyOf": [{"$ref": "#/$defs/measurement"}, {"type": "null"}]},
+        "output_format": {"enum": ["flac", "wav_pcm24"]},
+        "output_relative_path": {"type": ["string", "null"]},
+        "output_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "output_bytes": {"type": "integer", "minimum": 0},
+        "normalization_type": {"type": ["string", "null"]},
+        "qa": {"$ref": "#/$defs/qa"},
+        "wall_seconds": {"type": "number", "minimum": 0},
+        "cpu_seconds": {"type": ["number", "null"], "minimum": 0},
+        "measurement_status": {"enum": ["measured", "unavailable"]},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "error": {"anyOf": [{"$ref": "#/$defs/error"}, {"type": "null"}]}
+      }
+    }
+  }
+}

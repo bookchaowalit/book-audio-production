@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "book-audio-production"
+version = "0.1.0"
+description = "Local deterministic batch audio preparation with verifiable QA"
+requires-python = ">=3.12"
+dependencies = ["psutil>=6,<8"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9", "jsonschema>=4,<5"]
+
+[project.scripts]
+book-audio = "book_audio_production.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
