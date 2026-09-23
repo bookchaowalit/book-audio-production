@@ -120,3 +120,21 @@ def test_atomic_manifest_does_not_replace_existing_manifest(tmp_path: Path) -> N
 
     assert error.value.code == "OUTPUT_EXISTS"
     assert json.loads(manifest.read_text(encoding="utf-8")) == {"existing": True}
+
+
+def test_verifier_rejects_tampered_manifest_even_when_artifact_is_unchanged(tmp_path: Path) -> None:
+    batch_dir = tmp_path / "pilot-1"
+    artifact = batch_dir / "tone.flac"
+    batch_dir.mkdir()
+    content = b"lossless-output"
+    artifact.write_bytes(content)
+    manifest = batch_dir / "result.json"
+    write_manifest_atomic(manifest, accepted_payload("tone.flac", content))
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["wall_seconds"] = 99
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    verification = verify_manifest(manifest)
+
+    assert verification.passed is False
+    assert verification.error_code == "REPLAY_INTEGRITY_ERROR"

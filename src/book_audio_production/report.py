@@ -8,7 +8,15 @@ from pathlib import PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 
 from .errors import AudioError
-from .models import AudioBatchResult
+from .models import (
+    AudioBatchResult,
+    AudioMeasurement,
+    ErrorInfo,
+    LoudnessTargets,
+    QAResult,
+    TrackResult,
+    TrimRange,
+)
 
 
 def _safe_relative_reference(value: object) -> bool:
@@ -45,3 +53,77 @@ def serialize_result(result: AudioBatchResult) -> dict[str, object]:
     if not isinstance(decoded, dict):
         raise AudioError("UNSAFE_REPORT", "Audio report is invalid")
     return decoded
+
+
+def deserialize_result(payload: dict[str, object], *, replay: bool = False) -> AudioBatchResult:
+    """Rebuild the typed public result from a previously verified manifest."""
+    try:
+        if payload.get("schema_version") != "audio-batch-result.v1":
+            raise ValueError
+
+        def trim(value):
+            return None if value is None else TrimRange(value.get("start_ms"), value.get("end_ms"))
+
+        def targets(value):
+            return LoudnessTargets(value["integrated_lufs"], value["true_peak_dbtp"], value["lra_lu"])
+
+        def measurement(value):
+            return None if value is None else AudioMeasurement(
+                value["integrated_lufs"],
+                value["lra_lu"],
+                value["sample_peak_dbfs"],
+                value["true_peak_dbtp"],
+                value["duration_seconds"],
+            )
+
+        tracks = []
+        for item in payload["tracks"]:
+            qa = item["qa"]
+            error_data = item["error"]
+            tracks.append(
+                TrackResult(
+                    track_id=item["track_id"],
+                    status=item["status"],
+                    source_relative=item["source_relative"],
+                    source_sha256=item["source_sha256"],
+                    trim=trim(item["trim"]),
+                    requested_targets=targets(item["requested_targets"]),
+                    pre_measurement=measurement(item["pre_measurement"]),
+                    post_measurement=measurement(item["post_measurement"]),
+                    output_format=item["output_format"],
+                    output_relative_path=item["output_relative_path"],
+                    output_sha256=item["output_sha256"],
+                    output_bytes=item["output_bytes"],
+                    normalization_type=item["normalization_type"],
+                    qa=QAResult(bool(qa["passed"]), tuple(qa["failures"]), dict(qa["checks"])),
+                    wall_seconds=item["wall_seconds"],
+                    cpu_seconds=item["cpu_seconds"],
+                    measurement_status=item["measurement_status"],
+                    warnings=tuple(item["warnings"]),
+                    error=None if error_data is None else ErrorInfo(
+                        error_data["code"], error_data["message"], error_data["retryable"]
+                    ),
+                )
+            )
+        return AudioBatchResult(
+            schema_version="audio-batch-result.v1",
+            batch_id=payload["batch_id"],
+            status=payload["status"],
+            recipe_version=payload["recipe_version"],
+            fingerprint=payload["fingerprint"],
+            ffmpeg_version=payload["ffmpeg_version"],
+            ffprobe_version=payload["ffprobe_version"],
+            model_calls=0,
+            accepted_tracks=payload["accepted_tracks"],
+            rejected_tracks=payload["rejected_tracks"],
+            wall_seconds=payload["wall_seconds"],
+            cpu_seconds=payload["cpu_seconds"],
+            measurement_status=payload["measurement_status"],
+            bytes_written=payload["bytes_written"],
+            monetary_cost=payload["monetary_cost"],
+            cost_status=payload["cost_status"],
+            replay=replay,
+            tracks=tuple(tracks),
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise AudioError("INVALID_MANIFEST", "Stored audio result manifest is invalid") from None

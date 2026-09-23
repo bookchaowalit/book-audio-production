@@ -339,7 +339,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
 
 
 def process_batch(batch, input_root, output_root, limits):
-    """Process a complete local batch; imported lazily to keep rendering independent."""
-    from .batch import process_batch as _process_batch
+    """Run or replay one complete local batch under cross-process coordination."""
+    from .replay import process_batch as _process_batch
 
     return _process_batch(batch, input_root, output_root, limits)

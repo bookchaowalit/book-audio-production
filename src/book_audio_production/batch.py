@@ -57,6 +57,35 @@ def _safe_reference(source: str) -> str | None:
     return path.as_posix()
 
 
+def fingerprint_sources(batch: AudioBatch, input_root: Path, limits: AudioLimits) -> dict[str, str | None]:
+    """Hash safe, size-bounded local inputs without probing or launching media tools."""
+    try:
+        root = Path(input_root).resolve(strict=True)
+    except OSError:
+        return {track.track_id: None for track in batch.tracks}
+    hashes: dict[str, str | None] = {}
+    for track in batch.tracks:
+        reference = _safe_reference(track.source)
+        if reference is None:
+            hashes[track.track_id] = None
+            continue
+        try:
+            source = (root / reference).resolve(strict=True)
+            source.relative_to(root)
+            size = source.stat().st_size
+            if not source.is_file() or not 0 < size <= limits.max_source_bytes:
+                hashes[track.track_id] = None
+                continue
+            digest = hashlib.sha256()
+            with source.open("rb") as file:
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            hashes[track.track_id] = digest.hexdigest()
+        except (OSError, RuntimeError, ValueError):
+            hashes[track.track_id] = None
+    return hashes
+
+
 def _fingerprint(batch: AudioBatch, limits: AudioLimits, ffmpeg: str, ffprobe: str, hashes: dict[str, str | None]) -> str:
     request = asdict(batch)
     document = {
@@ -101,7 +130,7 @@ def _validate_result_cpu(results) -> tuple[float | None, str]:
     return sum(result.cpu_seconds for result in results), "measured"
 
 
-def process_batch(
+def process_batch_once(
     batch: AudioBatch,
     input_root: Path,
     output_root: Path,
@@ -127,6 +156,7 @@ def process_batch(
     validated = {}
     errors: dict[str, AudioError] = {}
     process_results: dict[str, list] = {}
+    source_hashes = fingerprint_sources(normalized, source_root, limits)
     total_duration = 0.0
     predicted_batch_bytes = 0
     for request in normalized.tracks:
@@ -144,6 +174,7 @@ def process_batch(
             if estimate > limits.max_output_bytes_per_track:
                 raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio may exceed its size limit")
             validated[request.track_id] = item
+            source_hashes[request.track_id] = item.source_sha256
             process_results[request.track_id] = calls
             total_duration += item.probe.duration_seconds
             predicted_batch_bytes += estimate
@@ -160,10 +191,6 @@ def process_batch(
     if predicted_batch_bytes > limits.max_output_bytes_per_batch:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Batch output may exceed its configured size limit")
 
-    source_hashes = {
-        request.track_id: validated[request.track_id].source_sha256 if request.track_id in validated else None
-        for request in normalized.tracks
-    }
     fingerprint = _fingerprint(
         normalized, limits, toolchain.ffmpeg_version, toolchain.ffprobe_version, source_hashes
     )

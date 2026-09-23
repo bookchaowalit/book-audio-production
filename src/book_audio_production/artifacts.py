@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import tempfile
@@ -31,24 +32,38 @@ def publish_artifact(staged: Path, final: Path) -> None:
 
 def write_manifest_atomic(manifest: Path, payload: dict[str, object]) -> None:
     """Write and publish a JSON manifest atomically, never replacing prior work."""
+    sidecar = manifest.with_name(f"{manifest.name}.sha256")
+    sidecar_created = False
+    temporary_paths: list[Path] = []
     try:
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        content = (encoded + "\n").encode("utf-8")
+        sidecar_content = (hashlib.sha256(content).hexdigest() + "\n").encode("ascii")
+        if manifest.exists() or sidecar.exists():
+            raise FileExistsError
         manifest.parent.mkdir(parents=True, exist_ok=True)
-        handle, temporary_name = tempfile.mkstemp(prefix=f".{manifest.name}.", suffix=".tmp", dir=manifest.parent)
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as file:
-                file.write(encoded)
-                file.write("\n")
+        for suffix, data in ((".manifest.tmp", content), (".sha256.tmp", sidecar_content)):
+            handle, temporary_name = tempfile.mkstemp(prefix=f".{manifest.name}.", suffix=suffix, dir=manifest.parent)
+            temporary = Path(temporary_name)
+            temporary_paths.append(temporary)
+            with os.fdopen(handle, "wb") as file:
+                file.write(data)
                 file.flush()
                 os.fsync(file.fileno())
-            os.link(temporary, manifest)
-        finally:
-            temporary.unlink(missing_ok=True)
+        os.link(temporary_paths[1], sidecar)
+        sidecar_created = True
+        os.link(temporary_paths[0], manifest)
     except FileExistsError:
+        if sidecar_created:
+            sidecar.unlink(missing_ok=True)
         raise AudioError("OUTPUT_EXISTS", "Result manifest already exists") from None
     except (OSError, TypeError, ValueError):
+        if sidecar_created:
+            sidecar.unlink(missing_ok=True)
         raise AudioError("MANIFEST_WRITE_FAILED", "Result manifest could not be written") from None
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
 
 
 def _safe_artifact_reference(value: object) -> bool:
@@ -79,10 +94,20 @@ def verify_manifest(manifest: Path) -> VerificationResult:
     """Check accepted artifact paths, SHA-256 digests, and byte counts."""
     if not manifest.is_file():
         return VerificationResult(False, "MANIFEST_NOT_FOUND", 0, 0)
+    sidecar = manifest.with_name(f"{manifest.name}.sha256")
+    if manifest.is_symlink() or sidecar.is_symlink():
+        return VerificationResult(False, "UNSAFE_PATH", 0, 0)
     try:
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        if manifest.stat().st_size > 4 * 1024 * 1024 or sidecar.stat().st_size > 128:
+            return VerificationResult(False, "INVALID_MANIFEST", 0, 0)
+        manifest_bytes = manifest.read_bytes()
+        expected_digest = sidecar.read_text(encoding="ascii").strip()
+        if not hmac.compare_digest(hashlib.sha256(manifest_bytes).hexdigest(), expected_digest):
+            return VerificationResult(False, "REPLAY_INTEGRITY_ERROR", 0, 0)
+        payload = json.loads(manifest_bytes.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return VerificationResult(False, "INVALID_MANIFEST", 0, 0)
+        code = "REPLAY_INTEGRITY_ERROR" if manifest.with_name(f"{manifest.name}.sha256").exists() is False else "INVALID_MANIFEST"
+        return VerificationResult(False, code, 0, 0)
     if not isinstance(payload, dict) or payload.get("schema_version") != "audio-batch-result.v1":
         return VerificationResult(False, "INVALID_MANIFEST", 0, 0)
     tracks = payload.get("tracks")
