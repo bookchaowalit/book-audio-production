@@ -1,0 +1,12 @@
+# Copy to audio-production.toml to lower local caps. Values above pilot limits
+# are rejected; limits cannot be disabled.
+[limits]
+max_tracks = 20
+max_source_bytes = 2147483648
+max_track_seconds = 7200
+max_batch_seconds = 28800
+max_output_bytes_per_track = 8589934592
+max_output_bytes_per_batch = 42949672960
+track_deadline_seconds = 21600
+batch_deadline_seconds = 86400
+process_output_limit_bytes = 1048576
