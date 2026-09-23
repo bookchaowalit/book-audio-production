@@ -21,6 +21,7 @@ from .models import (
     ValidatedTrack,
 )
 from .probe import probe_audio, verified_toolchain
+from .qa import warnings_for_sample_peak
 
 _RECIPE_VERSION = "audio-v1a.1"
 _LOUDNESS_TOLERANCE_LU = 0.5
@@ -323,7 +324,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
             wall_seconds=max(0.0, time.monotonic() - start),
             cpu_seconds=cpu_seconds,
             measurement_status=measurement_status,
-            warnings=(),
+            warnings=warnings_for_sample_peak(post_measurement.sample_peak_dbfs),
             error=None,
         )
         try:
@@ -335,3 +336,10 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
         return result
     finally:
         shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def process_batch(batch, input_root, output_root, limits):
+    """Process a complete local batch; imported lazily to keep rendering independent."""
+    from .batch import process_batch as _process_batch
+
+    return _process_batch(batch, input_root, output_root, limits)
