@@ -13,7 +13,7 @@ from .benchmark import run_benchmark
 from .config import load_limits
 from .engine import process_batch
 from .errors import AudioError
-from .manifest import parse_manifest
+from .manifest import read_manifest_file
 from .models import BatchStatus
 from .report import serialize_result
 from .artifacts import verify_manifest
@@ -59,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "run":
             try:
-                request = parse_manifest(args.manifest.read_bytes())
+                request = read_manifest_file(args.manifest)
             except AudioError:
                 raise
             except OSError:
@@ -92,7 +92,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             {"error_code": error.code, "message": str(error), "retryable": error.retryable},
             stream=sys.stderr,
         )
-        if error.code in {"INVALID_MANIFEST", "UNSUPPORTED_SCHEMA", "INVALID_CONFIG", "INVALID_LIMITS"}:
+        if error.code in {
+            "INVALID_MANIFEST",
+            "UNSUPPORTED_SCHEMA",
+            "INVALID_CONFIG",
+            "INVALID_LIMITS",
+            "RESOURCE_LIMIT_EXCEEDED",
+        }:
             return 2
         return 4
 

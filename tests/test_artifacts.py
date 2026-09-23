@@ -83,6 +83,16 @@ def test_atomic_manifest_verifies_output_hash_and_size(tmp_path: Path) -> None:
     assert verification.bytes_checked == len(content)
 
 
+def test_verifier_enforces_deadline_even_for_empty_results(tmp_path: Path) -> None:
+    manifest = tmp_path / "pilot-1" / "result.json"
+    write_manifest_atomic(manifest, {"schema_version": "audio-batch-result.v1", "tracks": []})
+
+    verification = verify_manifest(manifest, deadline=0)
+
+    assert verification.passed is False
+    assert verification.error_code == "PROCESS_TIMEOUT"
+
+
 def test_verifier_rejects_tampered_artifact_and_path_escape(tmp_path: Path) -> None:
     batch_dir = tmp_path / "pilot-1"
     batch_dir.mkdir()

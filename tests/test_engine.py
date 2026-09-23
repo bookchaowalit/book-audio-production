@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 import pytest
 
@@ -98,6 +99,26 @@ def test_render_rejects_source_changed_after_validation_before_running_ffmpeg(tm
         render_track(validated, tmp_path / "tone.flac", run_process)
 
     assert error.value.code == "SOURCE_CHANGED"
+
+
+def test_render_deadline_includes_source_hashing_before_running_ffmpeg(tmp_path: Path) -> None:
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+    create_synthetic_audio(input_root / "tone.wav")
+    validated = validate_track(
+        TrackRequest("tone", "tone.wav", None, LoudnessTargets(-16, -1, None), "flac"),
+        input_root,
+        AudioLimits(),
+        run_process,
+    )
+
+    def unreachable_runner(*_args):
+        raise AssertionError("expired deadline must stop before invoking FFmpeg")
+
+    with pytest.raises(AudioError) as error:
+        render_track(validated, tmp_path / "tone.flac", unreachable_runner, deadline=time.monotonic() - 1)
+
+    assert error.value.code == "PROCESS_TIMEOUT"
 
 
 def test_render_preserves_a_file_created_at_the_target_after_initial_check(tmp_path: Path) -> None:

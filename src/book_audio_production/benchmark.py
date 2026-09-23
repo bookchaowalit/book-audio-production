@@ -99,7 +99,7 @@ def run_benchmark(output: Path, samples: int, limits: AudioLimits) -> BenchmarkR
         rejected=rejected_result.rejected_tracks + partial_result.rejected_tracks,
         partial_batches=int(partial_result.status == "completed_with_errors"),
         qa_failures=sum(
-            not track.qa.passed
+            track.error is not None and track.error.code == "QA_FAILED"
             for result in (accepted_result, rejected_result, partial_result)
             for track in result.tracks
         ),

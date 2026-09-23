@@ -29,6 +29,13 @@ def test_parse_audio_batch_v1() -> None:
     assert batch.tracks[0].trim is None
 
 
+def test_rejects_oversized_manifest_payload() -> None:
+    with pytest.raises(AudioError) as error:
+        parse_manifest(b" " * (1024 * 1024 + 1))
+
+    assert error.value.code == "RESOURCE_LIMIT_EXCEEDED"
+
+
 def test_parse_optional_trim_and_lra() -> None:
     payload = manifest(
         '{"track_id":"intro","source":"intro.wav",'

@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import tempfile
+import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 
@@ -80,18 +81,22 @@ def _safe_artifact_reference(value: object) -> bool:
     )
 
 
-def _digest(path: Path) -> tuple[str, int]:
+def _digest(path: Path, *, deadline: float | None = None) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
     with path.open("rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
             digest.update(chunk)
             size += len(chunk)
     return digest.hexdigest(), size
 
 
-def verify_manifest(manifest: Path) -> VerificationResult:
+def verify_manifest(manifest: Path, *, deadline: float | None = None) -> VerificationResult:
     """Check accepted artifact paths, SHA-256 digests, and byte counts."""
+    if deadline is not None and time.monotonic() >= deadline:
+        return VerificationResult(False, "PROCESS_TIMEOUT", 0, 0)
     if not manifest.is_file():
         return VerificationResult(False, "MANIFEST_NOT_FOUND", 0, 0)
     sidecar = manifest.with_name(f"{manifest.name}.sha256")
@@ -142,11 +147,15 @@ def verify_manifest(manifest: Path) -> VerificationResult:
             resolved.relative_to(root)
             if artifact.is_symlink() or not resolved.is_file():
                 return VerificationResult(False, "UNSAFE_PATH", checked, total_bytes)
-            actual_digest, actual_size = _digest(resolved)
+            actual_digest, actual_size = _digest(resolved, deadline=deadline)
+        except AudioError as error:
+            return VerificationResult(False, error.code, checked, total_bytes)
         except (OSError, RuntimeError, ValueError):
             return VerificationResult(False, "REPLAY_INTEGRITY_ERROR", checked, total_bytes)
         if actual_digest != digest or actual_size != expected_size:
             return VerificationResult(False, "REPLAY_INTEGRITY_ERROR", checked + 1, total_bytes + actual_size)
         checked += 1
         total_bytes += actual_size
+    if deadline is not None and time.monotonic() >= deadline:
+        return VerificationResult(False, "PROCESS_TIMEOUT", checked, total_bytes)
     return VerificationResult(True, None, checked, total_bytes)

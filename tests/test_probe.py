@@ -28,6 +28,8 @@ def test_probe_uses_safe_local_argv_and_reads_audio_stream(tmp_path: Path, monke
         assert isinstance(argv, list)
         assert "-protocol_whitelist" in argv
         assert "file,pipe" in argv
+        assert argv[argv.index("-f") + 1] == "wav"
+        assert argv.index("-f") < argv.index("-i")
         assert "-of" in argv and "json" in argv
         assert argv[-1] == str(source)
         return process_result(json.dumps(response).encode())

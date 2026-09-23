@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import time
 from pathlib import Path, PureWindowsPath
 from urllib.parse import urlsplit
 
@@ -40,11 +41,45 @@ def validate_roots(input_root: Path, output_root: Path) -> tuple[Path, Path]:
     return source, output
 
 
+def validate_output_locations(output_root: Path, batch_id: str) -> None:
+    """Reject redirected output descendants before any batch-controlled write."""
+    root = Path(output_root).resolve(strict=False)
+    locations = (
+        ((".locks",), True),
+        ((".locks", f"{batch_id}.lock"), False),
+        ((".staging",), True),
+        ((".staging", batch_id), True),
+        ((batch_id,), True),
+        ((batch_id, "artifacts"), True),
+    )
+    for parts, expect_directory in locations:
+        current = root
+        for index, part in enumerate(parts):
+            current = current / part
+            if current.is_symlink():
+                raise AudioError("UNSAFE_PATH", "Output paths must not contain symbolic links")
+            if not current.exists():
+                continue
+            try:
+                resolved = current.resolve(strict=True)
+                resolved.relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                raise AudioError("UNSAFE_PATH", "Output path must remain inside the selected output root") from None
+            is_final = index == len(parts) - 1
+            if (not is_final or expect_directory) and not current.is_dir():
+                raise AudioError("OUTPUT_UNAVAILABLE", "Output directory path is not a directory")
+            if is_final and not expect_directory and current.is_dir():
+                raise AudioError("OUTPUT_UNAVAILABLE", "Output lock path is not a file")
+
+
 def validate_track(
     track: TrackRequest,
     input_root: Path,
     limits: AudioLimits,
     runner: CommandRunner,
+    *,
+    toolchain=None,
+    deadline: float | None = None,
 ) -> ValidatedTrack:
     """Validate one track, then inspect the media through the bounded probe adapter."""
     from .limits import validate_limits
@@ -106,16 +141,24 @@ def validate_track(
     if source_bytes <= 0 or source_bytes > limits.max_source_bytes:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Source file is empty or exceeds its size limit")
 
-    from .probe import probe_audio
+    from .probe import input_demuxer_for_path, probe_audio
+
+    input_demuxer_for_path(source_path)
 
     def bounded_runner(argv, timeout_seconds, output_limit_bytes):
+        remaining = limits.track_deadline_seconds if deadline is None else deadline - time.monotonic()
+        if remaining <= 0:
+            raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
         return runner(
             argv,
-            min(timeout_seconds, limits.track_deadline_seconds),
+            min(timeout_seconds, limits.track_deadline_seconds, remaining),
             min(output_limit_bytes, limits.process_output_limit_bytes),
         )
 
-    probe = probe_audio(source_path, bounded_runner)
+    if toolchain is None:
+        probe = probe_audio(source_path, bounded_runner)
+    else:
+        probe = probe_audio(source_path, bounded_runner, toolchain=toolchain)
     if probe.channels not in (1, 2) or probe.sample_rate <= 0:
         raise AudioError("UNSUPPORTED_STREAM", "Only mono or stereo audio streams are supported")
     if not math.isfinite(probe.duration_seconds) or probe.duration_seconds <= 0:
@@ -133,7 +176,11 @@ def validate_track(
     try:
         with source_path.open("rb") as source_file:
             for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
                 digest.update(chunk)
+    except AudioError:
+        raise
     except OSError:
         raise AudioError("SOURCE_NOT_FOUND", "Source audio file cannot be read") from None
 

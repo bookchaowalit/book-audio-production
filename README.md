@@ -48,7 +48,10 @@ Save a UTF-8 JSON file such as `batch.json`:
 `source` is relative to the input directory. Supported outputs are `flac` and
 `wav_pcm24`. `trim` may be omitted; offsets are milliseconds converted to sample
 positions at the source sample rate. Supported inputs have one mono or stereo
-audio stream. Input metadata and chapters are removed from the output.
+audio stream in a single-file `.aac`, `.aif`, `.aiff`, `.flac`, `.mka`, `.mkv`,
+`.mp3`, `.oga`, `.ogg`, `.opus`, `.wav`, `.wave`, or `.webm` source. Playlist
+formats and other containers are rejected before probing. Global tags, stream
+tags, and chapters are removed from the output.
 
 ## Run, inspect, and replay
 
@@ -67,9 +70,13 @@ manifest digest and every accepted output's size and hash.
 The same batch ID, input bytes, settings, resource limits, recipe, and pinned
 toolchain return the saved result without launching FFmpeg or FFprobe. Changing
 any of them returns `REPLAY_CONFLICT`. Existing result files are never replaced.
-If a process is interrupted, an incomplete batch has no valid result manifest;
-the tool does not infer success from leftover files. A lock left by a crashed
-process is retained for manual inspection and is not automatically removed.
+The input manifest is limited to 1 MiB. One batch deadline covers source
+fingerprinting, lock waiting, processing, artifact hashing, and verification.
+Each attempt is built under `.staging/`; the complete verified batch directory
+is published atomically. If a process is interrupted, its incomplete staging
+attempt is discarded on the next run with the same batch ID. The tool does not
+infer success from leftover files. A lock left by a crashed process is retained
+for manual inspection and is not automatically removed.
 
 Exit codes are `0` for accepted work or exact replay, `2` for invalid input or a
 fully rejected batch, `3` for a partial batch, and `4` for a fatal error before
@@ -97,8 +104,9 @@ book-audio benchmark --output .\benchmark-output --samples 20
 
 The benchmark creates a local tone, processes up to 20 tracks, checks replay,
 rejection, and partial-batch behavior, then reports time, bytes, QA failures,
-`model_calls=0`, and unknown monetary cost. The target directory must be empty;
-existing files are preserved.
+`model_calls=0`, and unknown monetary cost. `qa_failures` counts only failed
+render QA; rejected inputs are reported separately. The target directory must
+be empty; existing files are preserved.
 
 ## Audio review status
 

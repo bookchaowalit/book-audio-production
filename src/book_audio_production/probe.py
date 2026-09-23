@@ -5,13 +5,38 @@ from __future__ import annotations
 import json
 import math
 import shutil
+import time
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from .errors import AudioError
 from .models import CommandRunner, ProbeInfo
 from .runner import run_process
+
+
+_INPUT_DEMUXERS = {
+    ".aac": "aac",
+    ".aif": "aiff",
+    ".aiff": "aiff",
+    ".flac": "flac",
+    ".mka": "matroska",
+    ".mkv": "matroska",
+    ".mp3": "mp3",
+    ".oga": "ogg",
+    ".ogg": "ogg",
+    ".opus": "ogg",
+    ".wav": "wav",
+    ".wave": "wav",
+    ".webm": "matroska",
+}
+
+
+def input_demuxer_for_path(source: Path) -> str:
+    """Select only single-file audio demuxers that do not follow playlists."""
+    demuxer = _INPUT_DEMUXERS.get(Path(source).suffix.lower())
+    if demuxer is None:
+        raise AudioError("UNSUPPORTED_FORMAT", "Source audio format is not supported")
+    return demuxer
 
 
 @dataclass(frozen=True)
@@ -22,9 +47,22 @@ class Toolchain:
     ffprobe_version: str
 
 
-@lru_cache(maxsize=1)
-def verified_toolchain() -> Toolchain:
+_TOOLCHAIN_CACHE: Toolchain | None = None
+
+
+def verified_toolchain(timeout_seconds: float = 5.0) -> Toolchain:
     """Resolve and verify both local binaries against the committed version lock."""
+    global _TOOLCHAIN_CACHE
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or not math.isfinite(timeout_seconds)
+        or timeout_seconds <= 0
+    ):
+        raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
+    if _TOOLCHAIN_CACHE is not None:
+        return _TOOLCHAIN_CACHE
+    deadline = time.monotonic() + timeout_seconds
     lock_path = Path(__file__).parents[2] / "toolchain.lock.json"
     try:
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
@@ -36,10 +74,13 @@ def verified_toolchain() -> Toolchain:
     paths: dict[str, str] = {}
     versions: dict[str, str] = {}
     for tool, version_field in (("ffmpeg", "ffmpeg_version"), ("ffprobe", "ffprobe_version")):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
         executable = shutil.which(tool)
         if executable is None:
             raise AudioError("TOOL_NOT_FOUND", "Required media tool is not available")
-        result = run_process([executable, "-version"], 5, 64 * 1024)
+        result = run_process([executable, "-version"], remaining, 64 * 1024)
         first_line = result.stdout.decode("utf-8", errors="replace").splitlines()
         expected = lock.get(version_field)
         if result.returncode != 0 or result.output_truncated or not first_line or first_line[0] != expected:
@@ -47,12 +88,14 @@ def verified_toolchain() -> Toolchain:
         paths[tool] = executable
         versions[tool] = first_line[0]
 
-    return Toolchain(paths["ffmpeg"], paths["ffprobe"], versions["ffmpeg"], versions["ffprobe"])
+    _TOOLCHAIN_CACHE = Toolchain(paths["ffmpeg"], paths["ffprobe"], versions["ffmpeg"], versions["ffprobe"])
+    return _TOOLCHAIN_CACHE
 
 
-def probe_audio(source: Path, runner: CommandRunner) -> ProbeInfo:
+def probe_audio(source: Path, runner: CommandRunner, *, toolchain: Toolchain | None = None) -> ProbeInfo:
     """Read the single supported audio stream from a local source file."""
-    toolchain = verified_toolchain()
+    toolchain = verified_toolchain() if toolchain is None else toolchain
+    demuxer = input_demuxer_for_path(source)
     argv = [
         toolchain.ffprobe_path,
         "-v",
@@ -63,6 +106,8 @@ def probe_audio(source: Path, runner: CommandRunner) -> ProbeInfo:
         "format=duration:stream=codec_type,codec_name,channels,sample_rate,duration,bits_per_raw_sample",
         "-protocol_whitelist",
         "file,pipe",
+        "-f",
+        demuxer,
         "-i",
         str(source),
     ]

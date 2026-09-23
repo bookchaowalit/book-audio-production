@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from pathlib import Path
 from typing import Any, NoReturn
 
 from .errors import AudioError
@@ -12,6 +13,7 @@ from .models import AudioBatch, LoudnessTargets, TrackRequest, TrimRange
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z", re.ASCII)
 _FORMATS = {"flac", "wav_pcm24"}
+MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 def _invalid(message: str = "Audio batch manifest is invalid") -> NoReturn:
@@ -71,6 +73,8 @@ def parse_manifest(payload: bytes) -> AudioBatch:
     """Parse a UTF-8 ``audio-batch.v1`` manifest into immutable models."""
     if not isinstance(payload, bytes):
         _invalid()
+    if len(payload) > MAX_MANIFEST_BYTES:
+        raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Audio batch manifest exceeds its size limit")
     try:
         document = json.loads(
             payload.decode("utf-8"),
@@ -139,3 +143,13 @@ def parse_manifest(payload: bytes) -> AudioBatch:
         tracks.append(TrackRequest(track_id, source, trim, targets, output_format))
 
     return AudioBatch(batch_id=batch_id, tracks=tuple(tracks))
+
+
+def read_manifest_file(path: Path) -> AudioBatch:
+    """Read at most one MiB plus one byte before parsing a local manifest."""
+    try:
+        with Path(path).open("rb") as file:
+            payload = file.read(MAX_MANIFEST_BYTES + 1)
+    except OSError:
+        raise AudioError("INVALID_MANIFEST", "Audio batch manifest cannot be read") from None
+    return parse_manifest(payload)

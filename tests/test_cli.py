@@ -66,3 +66,15 @@ def test_cli_rejects_malformed_manifest_without_echoing_path(tmp_path: Path, cap
     assert code == 2
     assert "INVALID_MANIFEST" in output
     assert str(tmp_path) not in output
+
+
+def test_cli_rejects_oversized_manifest_with_stable_code(tmp_path: Path, capsys) -> None:
+    manifest = tmp_path / "oversized.json"
+    manifest.write_bytes(b" " * (1024 * 1024 + 1))
+
+    code = main(
+        ["run", "--manifest", str(manifest), "--input-root", str(tmp_path), "--output-root", str(tmp_path / "out")]
+    )
+
+    assert code == 2
+    assert "RESOURCE_LIMIT_EXCEEDED" in capsys.readouterr().err

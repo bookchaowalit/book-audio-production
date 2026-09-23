@@ -20,10 +20,10 @@ from .models import (
     TrackResult,
     ValidatedTrack,
 )
-from .probe import probe_audio, verified_toolchain
+from .probe import input_demuxer_for_path, probe_audio, verified_toolchain
 from .qa import warnings_for_sample_peak
 
-_RECIPE_VERSION = "audio-v1a.1"
+_RECIPE_VERSION = "audio-v1a.2"
 _LOUDNESS_TOLERANCE_LU = 0.5
 _TRUE_PEAK_TOLERANCE_DB = 0.1
 _CONTAINER_ROUNDING_SECONDS = 0.002
@@ -89,12 +89,19 @@ def _call(
     return result
 
 
-def _hash_file(path: Path) -> str:
+def _hash_file(path: Path, *, deadline: float | None = None) -> str:
     digest = hashlib.sha256()
     try:
         with path.open("rb") as file:
-            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            while True:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+                chunk = file.read(1024 * 1024)
+                if not chunk:
+                    break
                 digest.update(chunk)
+    except AudioError:
+        raise
     except OSError:
         raise AudioError("RENDER_FAILED", "Rendered audio artifact cannot be read") from None
     return digest.hexdigest()
@@ -114,25 +121,36 @@ def _combine_pre_measurement(loudness, peaks: AudioMeasurement, expected_duratio
     )
 
 
-def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner) -> TrackResult:
+def render_track(
+    track: ValidatedTrack,
+    output_path: Path,
+    runner: CommandRunner,
+    *,
+    toolchain=None,
+    deadline: float | None = None,
+) -> TrackResult:
     """Render one validated track to an unaccepted staging path and check it."""
     if output_path.exists():
         raise AudioError("OUTPUT_EXISTS", "Output file already exists")
     predicted_bytes = _estimate_output_bytes(track)
     if predicted_bytes > track.limits.max_output_bytes_per_track:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio may exceed its size limit")
+    start = time.monotonic()
+    track_deadline = start + track.limits.track_deadline_seconds
+    if deadline is not None:
+        track_deadline = min(track_deadline, deadline)
+    if start >= track_deadline:
+        raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
     try:
         source_bytes = track.source_path.stat().st_size
     except OSError:
         raise AudioError("SOURCE_NOT_FOUND", "Source audio file cannot be read") from None
     if source_bytes <= 0 or source_bytes > track.limits.max_source_bytes:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Source file is empty or exceeds its size limit")
-    if _hash_file(track.source_path) != track.source_sha256:
+    if _hash_file(track.source_path, deadline=track_deadline) != track.source_sha256:
         raise AudioError("SOURCE_CHANGED", "Source file changed after validation")
 
-    start = time.monotonic()
-    deadline = start + track.limits.track_deadline_seconds
-    toolchain = verified_toolchain()
+    toolchain = verified_toolchain() if toolchain is None else toolchain
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         staging_dir = Path(tempfile.mkdtemp(prefix=".audio-render-", dir=output_path.parent))
@@ -145,6 +163,8 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
     input_args = [
         "-protocol_whitelist",
         "file,pipe",
+        "-f",
+        input_demuxer_for_path(track.source_path),
         "-i",
         str(track.source_path),
         "-map",
@@ -161,7 +181,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
             runner,
             [*base, *input_args, "-af", analysis_filter, "-f", "null", os.devnull],
             track,
-            deadline,
+            track_deadline,
         )
         results.append(loudness_pass)
         analysis = parse_loudnorm_measurement(loudness_pass.stderr.decode("utf-8", errors="replace"))
@@ -179,7 +199,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
                 os.devnull,
             ],
             track,
-            deadline,
+            track_deadline,
         )
         results.append(pre_peak_pass)
         expected_samples = _effective_samples(track)
@@ -219,6 +239,8 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
                 normalization_filter,
                 "-map_metadata",
                 "-1",
+                "-map_metadata:s",
+                "-1",
                 "-map_chapters",
                 "-1",
                 "-ar",
@@ -229,7 +251,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
                 str(staged_output),
             ],
             track,
-            deadline,
+            track_deadline,
         )
         results.append(render)
         if not staged_output.is_file() or staged_output.stat().st_size <= 0:
@@ -238,7 +260,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
             raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio exceeds its size limit")
 
         def probe_runner(argv, _timeout, _limit):
-            result = _call(runner, list(argv), track, deadline)
+            result = _call(runner, list(argv), track, track_deadline)
             results.append(result)
             return result
 
@@ -264,7 +286,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
                 os.devnull,
             ],
             track,
-            deadline,
+            track_deadline,
         )
         results.append(post_peak_pass)
         post_measurement = parse_ebur128_measurement(
@@ -273,7 +295,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
         second_pass_log = render.stderr.decode("utf-8", errors="replace")
         normalization = parse_loudnorm_measurement(second_pass_log)
 
-        source_after_hash = _hash_file(track.source_path)
+        source_after_hash = _hash_file(track.source_path, deadline=track_deadline)
         if source_after_hash != track.source_sha256:
             raise AudioError("SOURCE_CHANGED", "Source file changed during audio processing")
 
@@ -304,7 +326,7 @@ def render_track(track: ValidatedTrack, output_path: Path, runner: CommandRunner
         cpu_values = [result.cpu_seconds for result in results]
         measurement_status = "measured" if all(result.measurement_status == "measured" for result in results) and all(value is not None for value in cpu_values) else "unavailable"
         cpu_seconds = sum(value for value in cpu_values if value is not None) if measurement_status == "measured" else None
-        output_hash = _hash_file(staged_output)
+        output_hash = _hash_file(staged_output, deadline=track_deadline)
         relative_source = Path(track.request.source).as_posix()
         result = TrackResult(
             track_id=track.request.track_id,

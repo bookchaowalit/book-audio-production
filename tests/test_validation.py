@@ -52,6 +52,24 @@ def test_rejects_missing_source_before_probe(tmp_path: Path) -> None:
     assert error.value.code == "SOURCE_NOT_FOUND"
 
 
+def test_rejects_playlist_container_before_probe(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "input"
+    root.mkdir()
+    (root / "playlist.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:1,external\n../outside.wav\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "book_audio_production.probe.probe_audio",
+        lambda *_args, **_kwargs: ProbeInfo("pcm_s16le", 1, 44100, 1.0, 32),
+    )
+
+    with pytest.raises(AudioError) as error:
+        validate_track(request("playlist.m3u8"), root, AudioLimits(), lambda *_args: None)
+
+    assert error.value.code == "UNSUPPORTED_FORMAT"
+
+
 def test_rejects_source_over_file_size_cap_before_probe(tmp_path: Path) -> None:
     root = tmp_path / "input"
     root.mkdir()

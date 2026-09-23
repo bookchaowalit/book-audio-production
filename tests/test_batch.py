@@ -1,13 +1,56 @@
 import json
+import os
+import time
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from book_audio_production.artifacts import verify_manifest
+from book_audio_production.batch import _publish_batch_directory
+from book_audio_production.errors import AudioError
 from book_audio_production.engine import process_batch
 from book_audio_production.models import AudioBatch, AudioLimits, LoudnessTargets, TrackRequest
 from book_audio_production.report import serialize_result
 from tests.audio_fixtures import create_synthetic_audio
+
+
+def test_batch_directory_publish_retries_transient_os_errors(tmp_path: Path, monkeypatch) -> None:
+    staged = tmp_path / ".staged"
+    destination = tmp_path / "batch"
+    staged.mkdir()
+    (staged / "result.json").write_text("complete", encoding="utf-8")
+    original_rename = os.rename
+    attempts = 0
+
+    def fail_once(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError("temporary directory publication error")
+        return original_rename(source, target)
+
+    monkeypatch.setattr("book_audio_production.batch.os.rename", fail_once)
+
+    _publish_batch_directory(staged, destination, deadline=time.monotonic() + 2)
+
+    assert attempts == 2
+    assert (destination / "result.json").read_text(encoding="utf-8") == "complete"
+    assert not staged.exists()
+
+
+def test_batch_directory_publish_does_not_overwrite_existing_output(tmp_path: Path) -> None:
+    staged = tmp_path / ".staged"
+    destination = tmp_path / "batch"
+    staged.mkdir()
+    destination.mkdir()
+    (destination / "keep.txt").write_text("existing", encoding="utf-8")
+
+    with pytest.raises(AudioError) as error:
+        _publish_batch_directory(staged, destination, deadline=time.monotonic() + 2)
+
+    assert error.value.code == "OUTPUT_EXISTS"
+    assert (destination / "keep.txt").read_text(encoding="utf-8") == "existing"
 
 
 def test_process_batch_publishes_manifest_and_keeps_per_track_failure_local(tmp_path: Path) -> None:

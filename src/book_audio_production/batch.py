@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import shutil
 import tempfile
 import time
@@ -29,9 +30,9 @@ from .models import (
 from .probe import verified_toolchain
 from .report import serialize_result
 from .runner import run_process
-from .validation import validate_roots, validate_track
+from .validation import validate_output_locations, validate_roots, validate_track
 
-_RECIPE_VERSION = "audio-v1a.1"
+_RECIPE_VERSION = "audio-v1a.2"
 
 
 def _canonical_batch(batch: AudioBatch) -> AudioBatch:
@@ -146,24 +147,95 @@ def process_batch_once(
     input_root: Path,
     output_root: Path,
     limits: AudioLimits,
+    *,
+    deadline: float | None = None,
+    started_at: float | None = None,
 ) -> AudioBatchResult:
-    """Validate, render, QA, and publish a complete local batch result."""
+    """Stage one batch attempt and atomically expose it only after verification."""
     from .limits import validate_batch_capacity, validate_limits
 
-    start = time.monotonic()
     normalized = _canonical_batch(batch)
     validate_limits(limits)
-    batch_deadline = start + limits.batch_deadline_seconds
+    start = time.monotonic() if started_at is None else started_at
+    batch_deadline = start + limits.batch_deadline_seconds if deadline is None else deadline
     source_root, output_root = validate_roots(Path(input_root), Path(output_root))
-    toolchain = verified_toolchain()
     batch_dir = output_root / normalized.batch_id
-    manifest_path = batch_dir / "result.json"
-    if manifest_path.exists():
-        raise AudioError("OUTPUT_EXISTS", "Result manifest already exists")
+    validate_output_locations(output_root, normalized.batch_id)
+    if batch_dir.exists():
+        raise AudioError("OUTPUT_EXISTS", "Batch output already exists")
+    staging_root = output_root / ".staging" / normalized.batch_id
     try:
-        batch_dir.mkdir(parents=True, exist_ok=True)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        stage_dir = Path(tempfile.mkdtemp(prefix="attempt-", dir=staging_root))
     except OSError:
-        raise AudioError("OUTPUT_UNAVAILABLE", "Batch output directory cannot be created") from None
+        raise AudioError("OUTPUT_UNAVAILABLE", "Batch staging directory cannot be created") from None
+    try:
+        return _process_batch_in_stage(
+            normalized,
+            source_root,
+            output_root,
+            limits,
+            stage_dir,
+            batch_dir,
+            start,
+            batch_deadline,
+        )
+    finally:
+        if stage_dir.exists() and not stage_dir.is_symlink():
+            shutil.rmtree(stage_dir, ignore_errors=True)
+        for directory in (staging_root, staging_root.parent):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+
+
+def discard_incomplete_staging(output_root: Path, batch_id: str) -> None:
+    """Remove only this batch's reserved staging tree after acquiring its lock."""
+    staging_root = Path(output_root) / ".staging" / batch_id
+    if staging_root.is_symlink():
+        raise AudioError("UNSAFE_PATH", "Batch staging path must not be a symbolic link")
+    if staging_root.exists():
+        try:
+            shutil.rmtree(staging_root)
+        except OSError:
+            raise AudioError("OUTPUT_UNAVAILABLE", "Incomplete batch staging data cannot be cleared") from None
+
+
+def _publish_batch_directory(stage_dir: Path, batch_dir: Path, *, deadline: float) -> None:
+    """Atomically publish a verified batch, retrying short-lived filesystem errors."""
+    for attempt in range(4):
+        try:
+            os.rename(stage_dir, batch_dir)
+            return
+        except FileExistsError:
+            raise AudioError("OUTPUT_EXISTS", "Batch output already exists") from None
+        except OSError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True) from None
+            if attempt == 3:
+                raise AudioError("OUTPUT_UNAVAILABLE", "Verified batch could not be published") from None
+            time.sleep(min(0.05 * (2**attempt), remaining))
+
+
+def _process_batch_in_stage(
+    normalized: AudioBatch,
+    source_root: Path,
+    output_root: Path,
+    limits: AudioLimits,
+    stage_dir: Path,
+    batch_dir: Path,
+    start: float,
+    batch_deadline: float,
+) -> AudioBatchResult:
+    from .limits import validate_batch_capacity
+
+    remaining = batch_deadline - time.monotonic()
+    if remaining <= 0:
+        raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
+    toolchain = verified_toolchain(timeout_seconds=remaining)
+    manifest_path = stage_dir / "result.json"
 
     validated = {}
     errors: dict[str, AudioError] = {}
@@ -193,7 +265,14 @@ def process_batch_once(
             return result
 
         try:
-            item = validate_track(request, source_root, limits, tracked_runner)
+            item = validate_track(
+                request,
+                source_root,
+                limits,
+                tracked_runner,
+                toolchain=toolchain,
+                deadline=track_deadline,
+            )
             estimate = _estimate_output_bytes(item)
             if estimate > limits.max_output_bytes_per_track:
                 raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio may exceed its size limit")
@@ -218,7 +297,7 @@ def process_batch_once(
     fingerprint = _fingerprint(
         normalized, limits, toolchain.ffmpeg_version, toolchain.ffprobe_version, source_hashes
     )
-    artifact_dir = batch_dir / "artifacts"
+    artifact_dir = stage_dir / "artifacts"
     try:
         artifact_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -253,8 +332,14 @@ def process_batch_once(
         final_output = artifact_dir / filename
         source_stage = None
         try:
-            source_stage = Path(tempfile.mkdtemp(prefix=f".{request.track_id}-", dir=batch_dir))
-            rendered = render_track(item, source_stage / filename, tracked_runner)
+            source_stage = Path(tempfile.mkdtemp(prefix=f".{request.track_id}-", dir=stage_dir))
+            rendered = render_track(
+                item,
+                source_stage / filename,
+                tracked_runner,
+                toolchain=toolchain,
+                deadline=track_deadline,
+            )
             publish_artifact(source_stage / filename, final_output)
             relative_output = PurePosixPath("artifacts", filename).as_posix()
             cpu_seconds, measurement_status = _validate_result_cpu(calls)
@@ -312,4 +397,7 @@ def process_batch_once(
         verification = verify_manifest(manifest_path)
     if not verification.passed:
         raise AudioError(verification.error_code or "REPLAY_INTEGRITY_ERROR", "Published audio artifacts failed verification")
+    if time.monotonic() >= batch_deadline:
+        raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
+    _publish_batch_directory(stage_dir, batch_dir, deadline=batch_deadline)
     return result
