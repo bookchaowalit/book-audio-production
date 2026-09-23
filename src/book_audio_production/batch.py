@@ -46,18 +46,25 @@ def _canonical_batch(batch: AudioBatch) -> AudioBatch:
 
 
 def _safe_reference(source: str) -> str | None:
-    if not isinstance(source, str) or not source or "\\" in source:
+    if not isinstance(source, str) or not source:
         return None
-    parsed = urlsplit(source)
-    path = PurePosixPath(source)
+    normalized = source.replace("\\", "/")
+    parsed = urlsplit(normalized)
+    path = PurePosixPath(normalized)
     if parsed.scheme or parsed.netloc or path.is_absolute() or PureWindowsPath(source).is_absolute():
         return None
-    if any(part in {"", ".", ".."} for part in source.split("/")):
+    if any(part == ".." for part in normalized.split("/")):
         return None
     return path.as_posix()
 
 
-def fingerprint_sources(batch: AudioBatch, input_root: Path, limits: AudioLimits) -> dict[str, str | None]:
+def fingerprint_sources(
+    batch: AudioBatch,
+    input_root: Path,
+    limits: AudioLimits,
+    *,
+    deadline: float | None = None,
+) -> dict[str, str | None]:
     """Hash safe, size-bounded local inputs without probing or launching media tools."""
     try:
         root = Path(input_root).resolve(strict=True)
@@ -78,9 +85,13 @@ def fingerprint_sources(batch: AudioBatch, input_root: Path, limits: AudioLimits
                 continue
             digest = hashlib.sha256()
             with source.open("rb") as file:
-                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                while chunk := file.read(1024 * 1024):
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
                     digest.update(chunk)
             hashes[track.track_id] = digest.hexdigest()
+        except AudioError:
+            raise
         except (OSError, RuntimeError, ValueError):
             hashes[track.track_id] = None
     return hashes
@@ -142,6 +153,7 @@ def process_batch_once(
     start = time.monotonic()
     normalized = _canonical_batch(batch)
     validate_limits(limits)
+    batch_deadline = start + limits.batch_deadline_seconds
     source_root, output_root = validate_roots(Path(input_root), Path(output_root))
     toolchain = verified_toolchain()
     batch_dir = output_root / normalized.batch_id
@@ -156,15 +168,27 @@ def process_batch_once(
     validated = {}
     errors: dict[str, AudioError] = {}
     process_results: dict[str, list] = {}
-    source_hashes = fingerprint_sources(normalized, source_root, limits)
+    source_hashes = fingerprint_sources(normalized, source_root, limits, deadline=batch_deadline)
+    track_deadlines: dict[str, float] = {}
     total_duration = 0.0
     predicted_batch_bytes = 0
     for request in normalized.tracks:
         track_start = time.monotonic()
+        track_deadline = min(batch_deadline, track_start + limits.track_deadline_seconds)
+        track_deadlines[request.track_id] = track_deadline
         calls = []
 
+        if time.monotonic() >= track_deadline:
+            errors[request.track_id] = AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True)
+            process_results[request.track_id] = calls
+            process_results[f"wall:{request.track_id}"] = [max(0.0, time.monotonic() - track_start)]
+            continue
+
         def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            result = run_process(argv, timeout_seconds, output_limit_bytes)
+            remaining = track_deadline - time.monotonic()
+            if remaining <= 0:
+                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
             calls.append(result)
             return result
 
@@ -210,9 +234,17 @@ def process_batch_once(
 
         item = validated[request.track_id]
         calls = process_results[request.track_id]
+        track_deadline = track_deadlines[request.track_id]
+        if time.monotonic() >= track_deadline:
+            error = AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+            track_results.append(_rejected_track(request, error, time.monotonic() - track_start))
+            continue
 
         def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            result = run_process(argv, timeout_seconds, output_limit_bytes)
+            remaining = track_deadline - time.monotonic()
+            if remaining <= 0:
+                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
             calls.append(result)
             return result
 

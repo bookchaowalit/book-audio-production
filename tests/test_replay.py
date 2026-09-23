@@ -36,6 +36,25 @@ def test_exact_replay_returns_saved_result_without_media_process(tmp_path: Path,
     assert replay.tracks[0].output_sha256 == first.tracks[0].output_sha256
 
 
+def test_exact_replay_canonicalizes_safe_dot_relative_source(tmp_path: Path, monkeypatch) -> None:
+    batch, input_root, output_root, limits = make_args(tmp_path)
+    request = batch.tracks[0]
+    normalized = AudioBatch(
+        batch.batch_id,
+        (TrackRequest(request.track_id, f"./{request.source}", request.trim, request.targets, request.output_format),),
+    )
+    first = process_batch(normalized, input_root, output_root, limits)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("exact replay must not launch FFmpeg or FFprobe")
+
+    monkeypatch.setattr("book_audio_production.batch.run_process", fail_if_called)
+    replay = process_batch(normalized, input_root, output_root, limits)
+
+    assert replay.replay is True
+    assert replay.fingerprint == first.fingerprint
+
+
 def test_changed_request_with_existing_batch_id_conflicts(tmp_path: Path) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     process_batch(batch, input_root, output_root, limits)
