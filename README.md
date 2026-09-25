@@ -108,10 +108,26 @@ rejection, and partial-batch behavior, then reports time, bytes, QA failures,
 render QA; rejected inputs are reported separately. The target directory must
 be empty; existing files are preserved.
 
+Latest local run on 2026-09-25 (`.runtime/audio-goal-20260925`): the 20-track
+batch and follow-up partial-batch check reported 21 accepted outputs total
+(20 full-batch outputs plus one partial success), 2 rejected tracks, 1 partial
+batch, 1 replay hit, 0 QA failures, 633,297 bytes written, and
+`model_calls=0`. Wall time was 14.171 s and measured CPU time was 5.547 s;
+monetary cost remains `null`/unknown without a rate card.
+
 ## Audio review status
 
 The tests generate tones and pink noise and measure numeric loudness, true peak,
 trim accuracy, channels, sample rate, and lossless 24-bit output. Those checks
-do not establish speech intelligibility. A consented spoken sample still needs
-a manual source/output listening comparison before calling the product pilot
-ready. No speech recording is committed or included in telemetry.
+do not establish speech intelligibility. A local synthetic speech pair is
+available for review:
+
+- Source: `.runtime/manual-speech-qa-review/input/speech.wav`
+- Master: `.runtime/manual-speech-qa-review/output/manual-speech-qa-review/artifacts/speech-review-5ef04100c658.flac`
+- Result manifest: `.runtime/manual-speech-qa-review/output/manual-speech-qa-review/result.json`
+
+The manifest reports 1 accepted track, 7/7 numeric QA checks, 10.192 s
+duration, loudness from -21.4 to -18.0 LUFS, true peak from -2.81 to -1.0 dBTP,
+and `model_calls=0`. A human source/output listening comparison is still
+pending before calling the product pilot ready. No user speech recording is
+committed or included in telemetry.
