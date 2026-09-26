@@ -3,12 +3,20 @@ import time
 
 import pytest
 
-from book_audio_production.engine import milliseconds_to_samples, render_track
+from book_audio_production.engine import (
+    _GAIN_LIMITER_NORMALIZATION_TYPE,
+    milliseconds_to_samples,
+    render_track,
+)
 from book_audio_production.errors import AudioError
 from book_audio_production.models import AudioLimits, LoudnessTargets, TrackRequest, TrimRange
 from book_audio_production.runner import run_process
 from book_audio_production.validation import validate_track
-from tests.audio_fixtures import create_synthetic_audio
+from tests.audio_fixtures import (
+    create_extreme_crest_audio,
+    create_quiet_bursty_audio,
+    create_synthetic_audio,
+)
 
 
 def test_millisecond_trim_uses_sample_rounding() -> None:
@@ -45,6 +53,57 @@ def test_render_flac_is_lossless_24_bit_and_meets_loudness_targets(tmp_path: Pat
     assert result.output_relative_path is None
     assert result.source_sha256 == validated.source_sha256
     assert source.read_bytes() == source_hash_before
+
+
+def test_render_quiet_bursty_source_recovers_through_recorrection(tmp_path: Path) -> None:
+    """Real meeting-speech profile: quiet integrated loudness with ~20 dB crest.
+
+    Two-pass linear loudnorm cannot bridge the required gain inside the true-peak
+    headroom, so the engine must recover by re-running dynamic loudnorm on its own
+    output until the integrated loudness lands on target, while the same QA
+    tolerances stay enforced.
+    """
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+    source = create_quiet_bursty_audio(input_root / "bursty.wav")
+    source_bytes_before = source.read_bytes()
+    request = TrackRequest("bursty", "bursty.wav", None, LoudnessTargets(-16, -1, None), "flac")
+    validated = validate_track(request, input_root, AudioLimits(), run_process)
+
+    result = render_track(validated, tmp_path / "staging" / "bursty.flac", run_process)
+
+    assert result.status == "accepted"
+    assert result.qa.passed is True
+    assert result.qa.failures == ()
+    assert result.normalization_type == _GAIN_LIMITER_NORMALIZATION_TYPE
+    assert result.pre_measurement is not None and result.post_measurement is not None
+    assert result.pre_measurement.integrated_lufs < -20
+    assert abs(result.post_measurement.integrated_lufs - (-16)) <= 0.5
+    assert result.post_measurement.true_peak_dbtp <= -0.9
+    assert result.output_bytes > 0
+    assert source.read_bytes() == source_bytes_before
+
+
+def test_render_extreme_crest_source_fails_closed_when_target_is_unreachable(tmp_path: Path) -> None:
+    """A source silent 99.5% of the time cannot hold -16 LUFS under -1 dBTP.
+
+    The recorrection loop must give up after its bounded passes and fail closed
+    instead of publishing an artifact that misses its targets.
+    """
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+    create_extreme_crest_audio(input_root / "extreme.wav")
+    validated = validate_track(
+        TrackRequest("extreme", "extreme.wav", None, LoudnessTargets(-16, -1, None), "flac"),
+        input_root,
+        AudioLimits(),
+        run_process,
+    )
+
+    with pytest.raises(AudioError) as error:
+        render_track(validated, tmp_path / "staging" / "extreme.flac", run_process)
+
+    assert error.value.code == "QA_FAILED"
 
 
 def test_render_trimmed_stereo_pcm24_preserves_channel_count_and_duration(tmp_path: Path) -> None:

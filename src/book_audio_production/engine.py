@@ -16,6 +16,8 @@ from .models import (
     AudioMeasurement,
     CommandRunner,
     ErrorInfo,
+    LoudnessTargets,
+    ProbeInfo,
     QAResult,
     TrackResult,
     ValidatedTrack,
@@ -23,10 +25,15 @@ from .models import (
 from .probe import input_demuxer_for_path, probe_audio, verified_toolchain
 from .qa import warnings_for_sample_peak
 
-_RECIPE_VERSION = "audio-v1a.2"
+_RECIPE_VERSION = "audio-v1b"
 _LOUDNESS_TOLERANCE_LU = 0.5
 _TRUE_PEAK_TOLERANCE_DB = 0.1
 _CONTAINER_ROUNDING_SECONDS = 0.002
+_LIMITER_INITIAL_MARGIN_DB = 0.5
+_LIMITER_MARGIN_STEP_DB = 0.5
+_LIMITER_MARGIN_MAX_DB = 3.0
+_MAX_GAIN_CORRECTIONS = 6
+_GAIN_LIMITER_NORMALIZATION_TYPE = "gain+limiter"
 
 
 def milliseconds_to_samples(milliseconds: int, sample_rate: int) -> int:
@@ -214,7 +221,7 @@ def render_track(
             if targets.lra_lu is not None:
                 raise AudioError("MEASUREMENT_UNAVAILABLE", "Requested loudness range could not be measured")
             measured_lra = 50.0
-        normalization_filter = (
+        loudnorm_filter = (
             f"{trim_filter},loudnorm=I={_number(targets.integrated_lufs)}:"
             f"TP={_number(targets.true_peak_dbtp)}:LRA={_number(target_lra)}:"
             f"measured_I={_number(analysis.integrated_lufs)}:"
@@ -227,100 +234,153 @@ def render_track(
             encoding_args = ["-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24", "-compression_level", "5", "-f", "flac"]
         else:
             encoding_args = ["-c:a", "pcm_s24le", "-f", "wav"]
-        render = _call(
-            runner,
-            [
-                *base,
-                *input_args,
-                "-vn",
-                "-sn",
-                "-dn",
-                "-af",
-                normalization_filter,
-                "-map_metadata",
-                "-1",
-                "-map_metadata:s",
-                "-1",
-                "-map_chapters",
-                "-1",
-                "-ar",
-                str(track.probe.sample_rate),
-                "-ac",
-                str(track.probe.channels),
-                *encoding_args,
-                str(staged_output),
-            ],
-            track,
-            track_deadline,
-        )
-        results.append(render)
-        if not staged_output.is_file() or staged_output.stat().st_size <= 0:
-            raise AudioError("RENDER_FAILED", "FFmpeg did not create a valid audio output")
-        if staged_output.stat().st_size > track.limits.max_output_bytes_per_track:
-            raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio exceeds its size limit")
 
-        def probe_runner(argv, _timeout, _limit):
+        def _probe_runner(argv, _timeout, _limit):
             result = _call(runner, list(argv), track, track_deadline)
             results.append(result)
             return result
 
-        post_probe = probe_audio(staged_output, probe_runner)
-        post_peak_pass = _call(
-            runner,
-            [
-                toolchain.ffmpeg_path,
-                "-nostdin",
-                "-hide_banner",
-                "-v",
-                "info",
+        def _render_with(filter_chain: str, input_path: Path, demuxer: str):
+            input_args = [
                 "-protocol_whitelist",
                 "file,pipe",
+                "-f",
+                demuxer,
                 "-i",
-                str(staged_output),
+                str(input_path),
                 "-map",
                 "0:a:0",
-                "-af",
-                "ebur128=peak=true:framelog=quiet,astats=metadata=0:reset=0:measure_perchannel=none:measure_overall=Peak_level",
-                "-f",
-                "null",
-                os.devnull,
-            ],
-            track,
-            track_deadline,
-        )
-        results.append(post_peak_pass)
-        post_measurement = parse_ebur128_measurement(
-            post_peak_pass.stderr.decode("utf-8", errors="replace"), post_probe.duration_seconds
-        )
-        second_pass_log = render.stderr.decode("utf-8", errors="replace")
-        normalization = parse_loudnorm_measurement(second_pass_log)
+            ]
+            render = _call(
+                runner,
+                [
+                    *base,
+                    *input_args,
+                    "-vn",
+                    "-sn",
+                    "-dn",
+                    "-af",
+                    filter_chain,
+                    "-map_metadata",
+                    "-1",
+                    "-map_metadata:s",
+                    "-1",
+                    "-map_chapters",
+                    "-1",
+                    "-ar",
+                    str(track.probe.sample_rate),
+                    "-ac",
+                    str(track.probe.channels),
+                    *encoding_args,
+                    str(staged_output),
+                ],
+                track,
+                track_deadline,
+            )
+            results.append(render)
+            return render
 
+        loudness_only_failures = {"integrated_loudness_within_tolerance", "true_peak_under_ceiling"}
+        limiter_margin_db = _LIMITER_INITIAL_MARGIN_DB
+        base_gain = targets.integrated_lufs - analysis.integrated_lufs
+        correction_db = 0.0
+        normalization_type = ""
+        post_probe: ProbeInfo | None = None
+        post_measurement: AudioMeasurement | None = None
+        checks: dict[str, bool] = {}
+        failures: tuple[str, ...] = ()
+        attempt = 0
+        while True:
+            if attempt == 0:
+                filter_chain = loudnorm_filter
+            else:
+                # Near-miss correction: re-render from the original source with a plain
+                # gain (the base loudness distance plus accumulated corrections) and hold
+                # the true-peak ceiling with an adaptive limiter margin (true-peak
+                # overshoot past the sample-peak limit is content-dependent). Sample
+                # count is preserved, so duration QA is unaffected. Sources whose crest
+                # makes the target physically unreachable still fail closed once the
+                # bounded corrections run out. QA tolerances are unchanged.
+                limiter_linear = 10 ** ((targets.true_peak_dbtp - limiter_margin_db) / 20)
+                filter_chain = (
+                    f"{trim_filter},volume={_number(base_gain + correction_db)}dB,"
+                    f"alimiter=limit={_number(limiter_linear)}:level=false:attack=5:release=50"
+                )
+            staged_output.unlink(missing_ok=True)
+            render = _render_with(filter_chain, track.source_path, input_demuxer_for_path(track.source_path))
+            if not staged_output.is_file() or staged_output.stat().st_size <= 0:
+                raise AudioError("RENDER_FAILED", "FFmpeg did not create a valid audio output")
+            if staged_output.stat().st_size > track.limits.max_output_bytes_per_track:
+                raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Rendered audio exceeds its size limit")
+            post_probe = probe_audio(staged_output, _probe_runner)
+            post_peak_pass = _call(
+                runner,
+                [
+                    toolchain.ffmpeg_path,
+                    "-nostdin",
+                    "-hide_banner",
+                    "-v",
+                    "info",
+                    "-protocol_whitelist",
+                    "file,pipe",
+                    "-i",
+                    str(staged_output),
+                    "-map",
+                    "0:a:0",
+                    "-af",
+                    "ebur128=peak=true:framelog=quiet,astats=metadata=0:reset=0:measure_perchannel=none:measure_overall=Peak_level",
+                    "-f",
+                    "null",
+                    os.devnull,
+                ],
+                track,
+                track_deadline,
+            )
+            results.append(post_peak_pass)
+            post_measurement = parse_ebur128_measurement(
+                post_peak_pass.stderr.decode("utf-8", errors="replace"), post_probe.duration_seconds
+            )
+            if attempt == 0:
+                normalization_type = parse_loudnorm_measurement(
+                    render.stderr.decode("utf-8", errors="replace")
+                ).normalization_type
+            else:
+                normalization_type = _GAIN_LIMITER_NORMALIZATION_TYPE
+
+            expected_duration_tolerance = 1 / track.probe.sample_rate + _CONTAINER_ROUNDING_SECONDS
+            format_ok = (
+                post_probe.codec_name == "flac" and post_probe.bits_per_raw_sample == 24
+                if track.request.output_format == "flac"
+                else post_probe.codec_name == "pcm_s24le"
+            )
+            checks = {
+                "integrated_loudness_within_tolerance": abs(post_measurement.integrated_lufs - targets.integrated_lufs)
+                <= _LOUDNESS_TOLERANCE_LU,
+                "true_peak_under_ceiling": post_measurement.true_peak_dbtp
+                <= targets.true_peak_dbtp + _TRUE_PEAK_TOLERANCE_DB,
+                "duration_within_tolerance": abs(post_probe.duration_seconds - expected_duration)
+                <= expected_duration_tolerance,
+                "channels_preserved": post_probe.channels == track.probe.channels,
+                "sample_rate_preserved": post_probe.sample_rate == track.probe.sample_rate,
+                "lossless_24_bit_format": format_ok,
+                "output_file_nonempty": staged_output.stat().st_size > 0,
+            }
+            failures = _failure(checks)
+            if not failures:
+                break
+            if not set(failures) <= loudness_only_failures:
+                break
+            if attempt >= _MAX_GAIN_CORRECTIONS:
+                break
+            correction_db += targets.integrated_lufs - post_measurement.integrated_lufs
+            if not checks["true_peak_under_ceiling"]:
+                limiter_margin_db = min(limiter_margin_db + _LIMITER_MARGIN_STEP_DB, _LIMITER_MARGIN_MAX_DB)
+            attempt += 1
+            continue
         source_after_hash = _hash_file(track.source_path, deadline=track_deadline)
         if source_after_hash != track.source_sha256:
             raise AudioError("SOURCE_CHANGED", "Source file changed during audio processing")
-
-        expected_duration_tolerance = 1 / track.probe.sample_rate + _CONTAINER_ROUNDING_SECONDS
-        format_ok = (
-            post_probe.codec_name == "flac"
-            and post_probe.bits_per_raw_sample == 24
-            if track.request.output_format == "flac"
-            else post_probe.codec_name == "pcm_s24le"
-        )
-        checks = {
-            "integrated_loudness_within_tolerance": abs(post_measurement.integrated_lufs - targets.integrated_lufs)
-            <= _LOUDNESS_TOLERANCE_LU,
-            "true_peak_under_ceiling": post_measurement.true_peak_dbtp
-            <= targets.true_peak_dbtp + _TRUE_PEAK_TOLERANCE_DB,
-            "duration_within_tolerance": abs(post_probe.duration_seconds - expected_duration)
-            <= expected_duration_tolerance,
-            "channels_preserved": post_probe.channels == track.probe.channels,
-            "sample_rate_preserved": post_probe.sample_rate == track.probe.sample_rate,
-            "lossless_24_bit_format": format_ok,
-            "output_file_nonempty": staged_output.stat().st_size > 0,
-        }
-        failures = _failure(checks)
-        qa = QAResult(passed=not failures, failures=failures, checks=checks)
-        if not qa.passed:
+        if failures or post_measurement is None or post_probe is None:
             raise AudioError("QA_FAILED", "Rendered audio did not meet its quality checks")
 
         cpu_values = [result.cpu_seconds for result in results]
@@ -341,8 +401,8 @@ def render_track(
             output_relative_path=None,
             output_sha256=output_hash,
             output_bytes=staged_output.stat().st_size,
-            normalization_type=normalization.normalization_type,
-            qa=qa,
+            normalization_type=normalization_type,
+            qa=QAResult(passed=not failures, failures=failures, checks=checks),
             wall_seconds=max(0.0, time.monotonic() - start),
             cpu_seconds=cpu_seconds,
             measurement_status=measurement_status,
