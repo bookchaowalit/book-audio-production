@@ -32,7 +32,7 @@ from .report import serialize_result
 from .runner import run_process
 from .validation import validate_output_locations, validate_roots, validate_track
 
-_RECIPE_VERSION = "audio-v1b"
+_RECIPE_VERSION = "audio-v1c"
 
 
 def _canonical_batch(batch: AudioBatch) -> AudioBatch:

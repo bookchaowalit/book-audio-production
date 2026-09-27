@@ -25,7 +25,7 @@ from .models import (
 from .probe import input_demuxer_for_path, probe_audio, verified_toolchain
 from .qa import warnings_for_sample_peak
 
-_RECIPE_VERSION = "audio-v1b"
+_RECIPE_VERSION = "audio-v1c"
 _LOUDNESS_TOLERANCE_LU = 0.5
 _TRUE_PEAK_TOLERANCE_DB = 0.1
 _CONTAINER_ROUNDING_SECONDS = 0.002
@@ -34,6 +34,7 @@ _LIMITER_MARGIN_STEP_DB = 0.5
 _LIMITER_MARGIN_MAX_DB = 3.0
 _MAX_GAIN_CORRECTIONS = 6
 _GAIN_LIMITER_NORMALIZATION_TYPE = "gain+limiter"
+_TRIM_FADE_SECONDS = 0.005
 
 
 def milliseconds_to_samples(milliseconds: int, sample_rate: int) -> int:
@@ -72,7 +73,18 @@ def _trim_filter(track: ValidatedTrack) -> str:
     expression = f"atrim=start_sample={track.trim_start_sample}"
     if track.trim_end_sample is not None:
         expression += f":end_sample={track.trim_end_sample}"
-    return f"{expression},asetpts=PTS-STARTPTS"
+    expression += ",asetpts=PTS-STARTPTS"
+    # A trim point usually lands mid-waveform; a short fade on each edge that was
+    # actually cut prevents a click. Edges of the original source stay untouched.
+    total = round(track.probe.duration_seconds * track.probe.sample_rate)
+    effective = _effective_samples(track)
+    fade = min(round(track.probe.sample_rate * _TRIM_FADE_SECONDS), effective // 4)
+    if fade >= 1:
+        if track.trim_start_sample > 0:
+            expression += f",afade=t=in:ss=0:ns={fade}"
+        if track.trim_end_sample is not None and track.trim_end_sample < total:
+            expression += f",afade=t=out:ss={effective - fade}:ns={fade}"
+    return expression
 
 
 def _call(
@@ -298,13 +310,14 @@ def render_track(
                 # gain (the base loudness distance plus accumulated corrections) and hold
                 # the true-peak ceiling with an adaptive limiter margin (true-peak
                 # overshoot past the sample-peak limit is content-dependent). Sample
-                # count is preserved, so duration QA is unaffected. Sources whose crest
+                # count is preserved (lookahead latency is compensated, keeping A/V sync), so
+                # duration QA is unaffected. Sources whose crest
                 # makes the target physically unreachable still fail closed once the
                 # bounded corrections run out. QA tolerances are unchanged.
                 limiter_linear = 10 ** ((targets.true_peak_dbtp - limiter_margin_db) / 20)
                 filter_chain = (
                     f"{trim_filter},volume={_number(base_gain + correction_db)}dB,"
-                    f"alimiter=limit={_number(limiter_linear)}:level=false:attack=5:release=50"
+                    f"alimiter=limit={_number(limiter_linear)}:level=false:attack=5:release=50:latency=1"
                 )
             staged_output.unlink(missing_ok=True)
             render = _render_with(filter_chain, track.source_path, input_demuxer_for_path(track.source_path))
