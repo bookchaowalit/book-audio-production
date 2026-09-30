@@ -155,10 +155,11 @@ def validate_track(
             min(output_limit_bytes, limits.process_output_limit_bytes),
         )
 
-    if toolchain is None:
-        probe = probe_audio(source_path, bounded_runner)
-    else:
-        probe = probe_audio(source_path, bounded_runner, toolchain=toolchain)
+    probe = (
+        probe_audio(source_path, bounded_runner)
+        if toolchain is None
+        else probe_audio(source_path, bounded_runner, toolchain=toolchain)
+    )
     if probe.channels not in (1, 2) or probe.sample_rate <= 0:
         raise AudioError("UNSUPPORTED_STREAM", "Only mono or stereo audio streams are supported")
     if not math.isfinite(probe.duration_seconds) or probe.duration_seconds <= 0:

@@ -28,7 +28,8 @@ def test_sine_and_noise_round_trip_through_normalization(tmp_path: Path) -> None
         result = render_track(validated, tmp_path / "staging" / f"{kind}.flac", run_process)
 
         assert result.qa.passed is True
-        assert result.pre_measurement is not None and result.post_measurement is not None
+        assert result.pre_measurement is not None
+        assert result.post_measurement is not None
         assert abs(result.post_measurement.duration_seconds - 0.6) <= 1 / 44100 + 0.002
         assert abs(result.post_measurement.integrated_lufs - (-18)) <= 0.5
         assert result.post_measurement.true_peak_dbtp <= -0.9
@@ -78,7 +79,8 @@ def test_render_explicitly_drops_global_and_stream_metadata(tmp_path: Path) -> N
     source_metadata = run_process(metadata_command, 10, 64 * 1024)
     assert source_metadata.returncode == 0
     source_text = source_metadata.stdout.decode("utf-8")
-    assert "GLOBAL_PRIVATE_TAG" in source_text and "STREAM_PRIVATE_TAG" in source_text
+    assert "GLOBAL_PRIVATE_TAG" in source_text
+    assert "STREAM_PRIVATE_TAG" in source_text
 
     render_commands = []
 

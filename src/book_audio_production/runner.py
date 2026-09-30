@@ -74,7 +74,8 @@ def run_process(argv: Sequence[str], timeout_seconds: float, output_limit_bytes:
     except OSError:
         raise AudioError("PROCESS_FAILED", "Media process could not be started") from None
 
-    assert process.stdout is not None and process.stderr is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
     capture = _Capture(output_limit_bytes)
     stdout_thread = threading.Thread(target=capture.drain, args=(process.stdout, capture.stdout), daemon=True)
     stderr_thread = threading.Thread(target=capture.drain, args=(process.stderr, capture.stderr), daemon=True)

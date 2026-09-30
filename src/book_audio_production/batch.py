@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -198,10 +199,8 @@ def process_batch_once(
         if stage_dir.exists() and not stage_dir.is_symlink():
             shutil.rmtree(stage_dir, ignore_errors=True)
         for directory in (staging_root, staging_root.parent):
-            try:
+            with contextlib.suppress(OSError):
                 directory.rmdir()
-            except OSError:
-                pass
 
 
 def discard_incomplete_staging(output_root: Path, batch_id: str) -> None:

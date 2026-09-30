@@ -36,7 +36,7 @@ def test_millisecond_trim_uses_sample_rounding() -> None:
     assert milliseconds_to_samples(1000, 44100) == 44100
 
 
-@pytest.mark.parametrize("milliseconds,sample_rate", [(-1, 44100), (1, 0), (True, 44100)])
+@pytest.mark.parametrize(("milliseconds", "sample_rate"), [(-1, 44100), (1, 0), (True, 44100)])
 def test_millisecond_trim_rejects_invalid_values(milliseconds, sample_rate) -> None:
     with pytest.raises(AudioError) as error:
         milliseconds_to_samples(milliseconds, sample_rate)
@@ -57,12 +57,14 @@ def test_render_flac_is_lossless_24_bit_and_meets_loudness_targets(tmp_path: Pat
 
     assert result.status == "accepted"
     assert result.qa.passed is True
-    assert result.pre_measurement is not None and result.post_measurement is not None
+    assert result.pre_measurement is not None
+    assert result.post_measurement is not None
     assert abs(result.post_measurement.integrated_lufs - (-16)) <= 0.5
     assert result.post_measurement.true_peak_dbtp <= -0.9
     assert result.normalization_type in {"linear", "dynamic"}
     assert result.output_bytes > 0
-    assert result.output_sha256 is not None and len(result.output_sha256) == 64
+    assert result.output_sha256 is not None
+    assert len(result.output_sha256) == 64
     assert result.output_relative_path is None
     assert result.source_sha256 == validated.source_sha256
     assert source.read_bytes() == source_hash_before
@@ -90,7 +92,8 @@ def test_render_quiet_bursty_source_recovers_through_recorrection(tmp_path: Path
     assert result.qa.passed is True
     assert result.qa.failures == ()
     assert result.normalization_type == _GAIN_LIMITER_NORMALIZATION_TYPE
-    assert result.pre_measurement is not None and result.post_measurement is not None
+    assert result.pre_measurement is not None
+    assert result.post_measurement is not None
     assert result.pre_measurement.integrated_lufs < -20
     assert abs(result.post_measurement.integrated_lufs - (-16)) <= 0.5
     assert result.post_measurement.true_peak_dbtp <= -0.9
@@ -176,9 +179,11 @@ def test_trim_filter_leaves_uncut_edges_unfaded() -> None:
     assert "afade" not in filter_for(None)
     assert "afade" not in filter_for(TrimRange(0, 1000))
     head_only = filter_for(TrimRange(100, None))
-    assert "afade=t=in" in head_only and "afade=t=out" not in head_only
+    assert "afade=t=in" in head_only
+    assert "afade=t=out" not in head_only
     tail_only = filter_for(TrimRange(0, 900))
-    assert "afade=t=out" in tail_only and "afade=t=in" not in tail_only
+    assert "afade=t=out" in tail_only
+    assert "afade=t=in" not in tail_only
 
 
 @requires_pinned_toolchain

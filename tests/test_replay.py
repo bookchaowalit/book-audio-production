@@ -156,7 +156,8 @@ def test_batch_deadline_is_passed_to_source_fingerprinting(tmp_path: Path, monke
     with pytest.raises(_StopAfterLock):
         process_batch(batch, input_root, output_root, limits)
 
-    assert len(deadlines) == 1 and isinstance(deadlines[0], float)
+    assert len(deadlines) == 1
+    assert isinstance(deadlines[0], float)
 
 
 @requires_pinned_toolchain
@@ -184,7 +185,8 @@ def test_batch_lock_wait_is_bounded_by_remaining_deadline(tmp_path: Path, monkey
     with pytest.raises(_StopAfterLock):
         process_batch(batch, input_root, output_root, limits)
 
-    assert len(waits) == 1 and 0 < waits[0] <= 2
+    assert len(waits) == 1
+    assert 0 < waits[0] <= 2
 
 
 @requires_pinned_toolchain

@@ -57,7 +57,7 @@ def test_runner_rejects_invalid_argument_vectors(argv) -> None:
     assert error.value.code == "INVALID_COMMAND"
 
 
-@pytest.mark.parametrize("timeout,limit", [(float("nan"), 128), (0, 128), (1, True)])
+@pytest.mark.parametrize(("timeout", "limit"), [(float("nan"), 128), (0, 128), (1, True)])
 def test_runner_rejects_invalid_process_limits(timeout, limit) -> None:
     with pytest.raises(AudioError) as error:
         run_process([sys.executable, "-c", "pass"], timeout, limit)

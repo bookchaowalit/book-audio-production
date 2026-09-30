@@ -53,7 +53,8 @@ def test_cli_runs_local_manifest_and_verifies_result(tmp_path: Path, capsys) -> 
 
     assert run_code == 0
     assert json.loads(run_output)["model_calls"] == 0
-    assert str(input_root) not in run_output and str(output_root) not in run_output
+    assert str(input_root) not in run_output
+    assert str(output_root) not in run_output
     assert verify_code == 0
     assert json.loads(verify_output)["passed"] is True
 

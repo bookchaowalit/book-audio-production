@@ -18,7 +18,8 @@ def test_benchmark_reports_real_batch_replay_and_failure_counters(tmp_path: Path
     assert result.qa_failures == 0
     assert result.replay_hits == 1
     assert result.model_calls == 0
-    assert result.cost_status == "unknown" and result.monetary_cost is None
+    assert result.cost_status == "unknown"
+    assert result.monetary_cost is None
     assert result.bytes_written > 0
 
 

@@ -116,6 +116,17 @@ batch, 1 replay hit, 0 QA failures, 633,297 bytes written, and
 `model_calls=0`. Wall time was 14.171 s and measured CPU time was 5.547 s;
 monetary cost remains `null`/unknown without a rate card.
 
+## Ownership boundary
+
+This repository owns the `audio-batch.v1` contract (batch trim plus
+per-track loudness targets, `book-audio run`) and the FFmpeg build pinned in
+`toolchain.lock.json`. `book-production-platform` owns the separate
+`audio-ir.v1` Audio Master (one WAV, fixed presets). The two share FFmpeg
+loudness normalisation but are not forks of each other: add batch features
+here and preset-mastering features there. The platform's
+`scripts/audio_boundary_check.py --sibling <this checkout>` fails if either
+package starts handling the other's contract or importing the other package.
+
 ## Tests and CI
 
 ```powershell

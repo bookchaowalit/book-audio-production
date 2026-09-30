@@ -80,9 +80,11 @@ def test_process_batch_publishes_manifest_and_keeps_per_track_failure_local(tmp_
 
     assert result.status == "completed_with_errors"
     assert result.accepted_tracks == result.rejected_tracks == 1
-    assert result.model_calls == 0 and result.monetary_cost is None
+    assert result.model_calls == 0
+    assert result.monetary_cost is None
     assert result.tracks[0].output_relative_path is not None
-    assert result.tracks[1].error is not None and result.tracks[1].error.code == "SOURCE_NOT_FOUND"
+    assert result.tracks[1].error is not None
+    assert result.tracks[1].error.code == "SOURCE_NOT_FOUND"
     assert list(Draft202012Validator(schema).iter_errors(payload)) == []
     assert verify_manifest(manifest_path).passed is True
     assert "output" not in serialize_result(result)["tracks"][0]["output_relative_path"]
@@ -104,9 +106,11 @@ def test_process_batch_publishes_sanitized_rejection_without_audio_outputs(tmp_p
     payload = json.loads(payload_text)
 
     assert result.status == "rejected"
-    assert result.tracks[0].error is not None and result.tracks[0].error.code == "UNSAFE_PATH"
+    assert result.tracks[0].error is not None
+    assert result.tracks[0].error.code == "UNSAFE_PATH"
     assert payload["tracks"][0]["source_relative"] is None
-    assert "private" not in payload_text and payload["tracks"][0]["output_relative_path"] is None
+    assert "private" not in payload_text
+    assert payload["tracks"][0]["output_relative_path"] is None
     assert verify_manifest(manifest_path).passed is True
 
 
