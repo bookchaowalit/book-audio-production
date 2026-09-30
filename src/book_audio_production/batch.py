@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
-import math
 import os
 import shutil
 import tempfile
@@ -152,7 +152,7 @@ def process_batch_once(
     started_at: float | None = None,
 ) -> AudioBatchResult:
     """Stage one batch attempt and atomically expose it only after verification."""
-    from .limits import validate_batch_capacity, validate_limits
+    from .limits import validate_limits
 
     normalized = _canonical_batch(batch)
     validate_limits(limits)
@@ -205,12 +205,20 @@ def discard_incomplete_staging(output_root: Path, batch_id: str) -> None:
 def _publish_batch_directory(stage_dir: Path, batch_dir: Path, *, deadline: float) -> None:
     """Atomically publish a verified batch, retrying short-lived filesystem errors."""
     for attempt in range(4):
+        # POSIX rename() silently replaces an existing empty directory, so an
+        # existing destination is refused up front; the batch lock is held.
+        if os.path.lexists(batch_dir):
+            raise AudioError("OUTPUT_EXISTS", "Batch output already exists")
         try:
             os.rename(stage_dir, batch_dir)
             return
         except FileExistsError:
             raise AudioError("OUTPUT_EXISTS", "Batch output already exists") from None
-        except OSError:
+        except OSError as error:
+            # POSIX reports a non-empty destination directory as ENOTEMPTY
+            # (or EEXIST) instead of FileExistsError.
+            if error.errno in (errno.ENOTEMPTY, errno.EEXIST):
+                raise AudioError("OUTPUT_EXISTS", "Batch output already exists") from None
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True) from None
