@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Sequence
 
+from .artifacts import verify_manifest
 from .benchmark import run_benchmark
 from .config import load_limits
 from .engine import process_batch
@@ -16,7 +17,6 @@ from .errors import AudioError
 from .manifest import read_manifest_file
 from .models import BatchStatus
 from .report import serialize_result
-from .artifacts import verify_manifest
 
 
 def exit_code_for_status(status: BatchStatus, published: bool) -> int:

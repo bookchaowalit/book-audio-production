@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 import threading
 import time
-import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from .errors import AudioError
 from .models import MeasurementStatus, ProcessResult

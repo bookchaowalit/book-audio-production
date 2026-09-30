@@ -41,12 +41,18 @@ def test_probe_uses_safe_local_argv_and_reads_audio_stream(tmp_path: Path, monke
     assert info.file_bytes == len(b"audio-data")
 
 
+_AUDIO_STREAM = {"codec_type": "audio", "codec_name": "pcm", "channels": 1, "sample_rate": "44100", "duration": "1"}
+
+
 @pytest.mark.parametrize(
     "response",
     [
         {"streams": [], "format": {"duration": "1"}},
-        {"streams": [{"codec_type": "audio", "codec_name": "pcm", "channels": 1, "sample_rate": "44100", "duration": "1"}, {"codec_type": "audio", "codec_name": "pcm", "channels": 1, "sample_rate": "44100", "duration": "1"}], "format": {"duration": "1"}},
-        {"streams": [{"codec_type": "video", "codec_name": "mjpeg", "channels": 0, "sample_rate": "0", "duration": "1"}], "format": {"duration": "1"}},
+        {"streams": [_AUDIO_STREAM, _AUDIO_STREAM], "format": {"duration": "1"}},
+        {
+            "streams": [{"codec_type": "video", "codec_name": "mjpeg", "channels": 0, "sample_rate": "0", "duration": "1"}],
+            "format": {"duration": "1"},
+        },
     ],
 )
 def test_probe_rejects_missing_or_ambiguous_audio_streams(tmp_path: Path, monkeypatch, response) -> None:

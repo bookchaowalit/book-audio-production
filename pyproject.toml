@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["psutil>=6,<8"]
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9", "jsonschema>=4,<5"]
+test = ["pytest>=8,<9", "jsonschema>=4,<5", "ruff>=0.6,<1"]
 
 [project.scripts]
 book-audio = "book_audio_production.cli:main"
@@ -18,6 +18,20 @@ book-audio = "book_audio_production.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+book_audio_production = ["toolchain.lock.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Correctness (F, B), style errors (E), import order (I) and modern syntax
+# (UP). Widen the selection one rule family at a time, fixing findings as it
+# lands, rather than adding per-file ignores.
+select = ["E", "F", "I", "B", "UP"]

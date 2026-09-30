@@ -14,7 +14,7 @@ from book_audio_production.errors import AudioError
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="fake tools are POSIX shell scripts")
 
-LOCK = json.loads((Path(__file__).parents[1] / "toolchain.lock.json").read_text(encoding="utf-8"))
+LOCK = json.loads((Path(__file__).parents[1] / "src" / "book_audio_production" / "toolchain.lock.json").read_text(encoding="utf-8"))
 
 
 def _fake_tool(directory: Path, name: str, first_line: str, exit_code: int = 0) -> None:
@@ -81,3 +81,25 @@ def test_invalid_timeouts_fail_before_running_anything(fake_bin: Path, timeout: 
         probe.verified_toolchain(timeout)
 
     assert error.value.code == "PROCESS_TIMEOUT"
+
+
+def test_packaged_lock_is_read_through_package_resources() -> None:
+    from book_audio_production.toolchain_lock import pinned_versions
+
+    assert pinned_versions() == (LOCK["ffmpeg_version"], LOCK["ffprobe_version"])
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["not json", json.dumps({"schema_version": "other"}), json.dumps({"schema_version": "audio-toolchain.v1", "ffmpeg_version": 1})],
+)
+def test_invalid_lock_content_is_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str) -> None:
+    from book_audio_production import toolchain_lock
+
+    (tmp_path / "toolchain.lock.json").write_text(content, encoding="utf-8")
+    monkeypatch.setattr(toolchain_lock.resources, "files", lambda _package: tmp_path)
+
+    with pytest.raises(AudioError) as error:
+        toolchain_lock.pinned_versions()
+
+    assert error.value.code == "TOOLCHAIN_LOCK_INVALID"

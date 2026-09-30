@@ -208,7 +208,7 @@ def test_render_extreme_crest_source_fails_closed_when_target_is_unreachable(tmp
 def test_render_trimmed_stereo_pcm24_preserves_channel_count_and_duration(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
-    source = create_synthetic_audio(input_root / "stereo.wav", channels=2)
+    create_synthetic_audio(input_root / "stereo.wav", channels=2)
     request = TrackRequest("stereo", "stereo.wav", TrimRange(200, 800), LoudnessTargets(-18, -1, None), "wav_pcm24")
     validated = validate_track(request, input_root, AudioLimits(), run_process)
 

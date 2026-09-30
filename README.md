@@ -17,7 +17,8 @@ ffprobe -version
 book-audio --help
 ```
 
-The executable versions must match [`toolchain.lock.json`](toolchain.lock.json).
+The executable versions must match [`toolchain.lock.json`](src/book_audio_production/toolchain.lock.json)
+(shipped inside the package, so installed wheels use the same pins).
 The application does not download tools or access network media. FFprobe and
 FFmpeg are run as local processes with bounded time and captured output.
 
@@ -118,14 +119,17 @@ monetary cost remains `null`/unknown without a rate card.
 ## Tests and CI
 
 ```powershell
+python -m pip install -e ".[test]"
 python -m pytest -q
+python -m ruff check src tests
 ```
 
-Tests that render, replay, or benchmark real audio assert results against the
+Ruff settings live in `pyproject.toml`. Tests that render, replay, or benchmark real audio assert results against the
 exact FFmpeg/FFprobe build pinned in `toolchain.lock.json`; on a host without
 that build they skip with `TOOL_VERSION_MISMATCH` or `TOOL_NOT_FOUND` as the
-reason. GitHub Actions (`.github/workflows/ci.yml`) runs the rest of the suite
-on Ubuntu.
+reason. GitHub Actions (`.github/workflows/ci.yml`) runs Ruff and the rest of
+the suite on Ubuntu, and checks that an installed wheel finds the packaged
+toolchain lock.
 
 ## Audio review status
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from .errors import AudioError
 from .models import CommandRunner, ProbeInfo
 from .runner import run_process
-
+from .toolchain_lock import pinned_versions
 
 _INPUT_DEMUXERS = {
     ".aac": "aac",
@@ -63,13 +63,8 @@ def verified_toolchain(timeout_seconds: float = 5.0) -> Toolchain:
     if _TOOLCHAIN_CACHE is not None:
         return _TOOLCHAIN_CACHE
     deadline = time.monotonic() + timeout_seconds
-    lock_path = Path(__file__).parents[2] / "toolchain.lock.json"
-    try:
-        lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        raise AudioError("TOOLCHAIN_LOCK_INVALID", "Pinned media tool versions cannot be read") from None
-    if not isinstance(lock, dict) or lock.get("schema_version") != "audio-toolchain.v1":
-        raise AudioError("TOOLCHAIN_LOCK_INVALID", "Pinned media tool versions are invalid")
+    ffmpeg_pin, ffprobe_pin = pinned_versions()
+    lock = {"ffmpeg_version": ffmpeg_pin, "ffprobe_version": ffprobe_pin}
 
     paths: dict[str, str] = {}
     versions: dict[str, str] = {}

@@ -136,6 +136,20 @@ def _rejected_track(request: TrackRequest, error: AudioError, seconds: float) ->
     )
 
 
+def _deadline_runner(deadline: float, calls: list):
+    """Return a process runner bounded by ``deadline`` that records every result in ``calls``."""
+
+    def tracked_runner(argv, timeout_seconds, output_limit_bytes):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+        result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
+        calls.append(result)
+        return result
+
+    return tracked_runner
+
+
 def _validate_result_cpu(results) -> tuple[float | None, str]:
     if not results or any(result.measurement_status != "measured" or result.cpu_seconds is None for result in results):
         return None, "unavailable"
@@ -264,13 +278,7 @@ def _process_batch_in_stage(
             process_results[f"wall:{request.track_id}"] = [max(0.0, time.monotonic() - track_start)]
             continue
 
-        def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            remaining = track_deadline - time.monotonic()
-            if remaining <= 0:
-                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
-            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
-            calls.append(result)
-            return result
+        tracked_runner = _deadline_runner(track_deadline, calls)
 
         try:
             item = validate_track(
@@ -327,13 +335,7 @@ def _process_batch_in_stage(
             track_results.append(_rejected_track(request, error, time.monotonic() - track_start))
             continue
 
-        def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            remaining = track_deadline - time.monotonic()
-            if remaining <= 0:
-                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
-            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
-            calls.append(result)
-            return result
+        tracked_runner = _deadline_runner(track_deadline, calls)
 
         extension = ".flac" if request.output_format == "flac" else ".wav"
         filename = f"{request.track_id}-{item.source_sha256[:12]}{extension}"
