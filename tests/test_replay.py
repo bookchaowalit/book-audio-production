@@ -5,8 +5,14 @@ import pytest
 
 from book_audio_production.engine import process_batch
 from book_audio_production.errors import AudioError
-from book_audio_production.models import AudioBatch, AudioLimits, LoudnessTargets, TrackRequest
+from book_audio_production.models import (
+    AudioBatch,
+    AudioLimits,
+    LoudnessTargets,
+    TrackRequest,
+)
 from tests.audio_fixtures import create_synthetic_audio
+from tests.toolchain import requires_pinned_toolchain
 
 
 def make_args(tmp_path: Path):
@@ -21,6 +27,7 @@ def make_args(tmp_path: Path):
     return batch, input_root, output_root, AudioLimits()
 
 
+@requires_pinned_toolchain
 def test_exact_replay_returns_saved_result_without_media_process(tmp_path: Path, monkeypatch) -> None:
     arguments = make_args(tmp_path)
     first = process_batch(*arguments)
@@ -37,6 +44,7 @@ def test_exact_replay_returns_saved_result_without_media_process(tmp_path: Path,
     assert replay.tracks[0].output_sha256 == first.tracks[0].output_sha256
 
 
+@requires_pinned_toolchain
 def test_exact_replay_canonicalizes_safe_dot_relative_source(tmp_path: Path, monkeypatch) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     request = batch.tracks[0]
@@ -56,6 +64,7 @@ def test_exact_replay_canonicalizes_safe_dot_relative_source(tmp_path: Path, mon
     assert replay.fingerprint == first.fingerprint
 
 
+@requires_pinned_toolchain
 def test_changed_request_with_existing_batch_id_conflicts(tmp_path: Path) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     process_batch(batch, input_root, output_root, limits)
@@ -70,6 +79,7 @@ def test_changed_request_with_existing_batch_id_conflicts(tmp_path: Path) -> Non
     assert error.value.code == "REPLAY_CONFLICT"
 
 
+@requires_pinned_toolchain
 def test_changed_source_with_existing_batch_id_conflicts(tmp_path: Path) -> None:
     arguments = make_args(tmp_path)
     process_batch(*arguments)
@@ -81,6 +91,7 @@ def test_changed_source_with_existing_batch_id_conflicts(tmp_path: Path) -> None
     assert error.value.code == "REPLAY_CONFLICT"
 
 
+@requires_pinned_toolchain
 def test_tampered_output_is_rejected_during_replay(tmp_path: Path) -> None:
     arguments = make_args(tmp_path)
     result = process_batch(*arguments)
@@ -94,6 +105,7 @@ def test_tampered_output_is_rejected_during_replay(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("component", ["batch", "artifacts", "locks", "staging"])
+@requires_pinned_toolchain
 def test_batch_rejects_symlinked_output_directories(tmp_path: Path, monkeypatch, component: str) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     output_root.mkdir()
@@ -120,6 +132,7 @@ class _StopAfterLock(Exception):
     pass
 
 
+@requires_pinned_toolchain
 def test_batch_deadline_is_passed_to_source_fingerprinting(tmp_path: Path, monkeypatch) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     deadlines = []
@@ -146,6 +159,7 @@ def test_batch_deadline_is_passed_to_source_fingerprinting(tmp_path: Path, monke
     assert len(deadlines) == 1 and isinstance(deadlines[0], float)
 
 
+@requires_pinned_toolchain
 def test_batch_lock_wait_is_bounded_by_remaining_deadline(tmp_path: Path, monkeypatch) -> None:
     batch, input_root, output_root, _limits = make_args(tmp_path)
     limits = AudioLimits(batch_deadline_seconds=2)
@@ -173,6 +187,7 @@ def test_batch_lock_wait_is_bounded_by_remaining_deadline(tmp_path: Path, monkey
     assert len(waits) == 1 and 0 < waits[0] <= 2
 
 
+@requires_pinned_toolchain
 def test_retry_discards_incomplete_staging_attempt_before_same_batch_id(tmp_path: Path) -> None:
     batch, input_root, output_root, limits = make_args(tmp_path)
     stale_stage = output_root / ".staging" / batch.batch_id / "interrupted-attempt"

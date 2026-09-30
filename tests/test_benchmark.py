@@ -5,8 +5,10 @@ import pytest
 from book_audio_production.benchmark import run_benchmark
 from book_audio_production.errors import AudioError
 from book_audio_production.models import AudioLimits
+from tests.toolchain import requires_pinned_toolchain
 
 
+@requires_pinned_toolchain
 def test_benchmark_reports_real_batch_replay_and_failure_counters(tmp_path: Path) -> None:
     result = run_benchmark(tmp_path / "benchmark", samples=2, limits=AudioLimits())
 

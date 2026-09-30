@@ -28,6 +28,7 @@ from tests.audio_fixtures import (
     create_quiet_bursty_audio,
     create_synthetic_audio,
 )
+from tests.toolchain import requires_pinned_toolchain
 
 
 def test_millisecond_trim_uses_sample_rounding() -> None:
@@ -43,6 +44,7 @@ def test_millisecond_trim_rejects_invalid_values(milliseconds, sample_rate) -> N
     assert error.value.code == "INVALID_TRIM"
 
 
+@requires_pinned_toolchain
 def test_render_flac_is_lossless_24_bit_and_meets_loudness_targets(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -66,6 +68,7 @@ def test_render_flac_is_lossless_24_bit_and_meets_loudness_targets(tmp_path: Pat
     assert source.read_bytes() == source_hash_before
 
 
+@requires_pinned_toolchain
 def test_render_quiet_bursty_source_recovers_through_recorrection(tmp_path: Path) -> None:
     """Real meeting-speech profile: quiet integrated loudness with ~20 dB crest.
 
@@ -115,6 +118,7 @@ def _first_index_above(samples: array, threshold: float, start: int) -> int:
     raise AssertionError("no sample above threshold")
 
 
+@requires_pinned_toolchain
 def test_limiter_recovery_keeps_output_time_aligned_with_source(tmp_path: Path) -> None:
     """The gain+limiter path must not shift audio by the limiter lookahead (A/V sync)."""
     input_root = tmp_path / "input"
@@ -137,6 +141,7 @@ def test_limiter_recovery_keeps_output_time_aligned_with_source(tmp_path: Path) 
     assert abs(output_onset - source_onset) <= 20
 
 
+@requires_pinned_toolchain
 def test_render_fades_only_the_edges_cut_by_trim(tmp_path: Path) -> None:
     """Trim points inside a waveform get a short fade so the cut does not click."""
     input_root = tmp_path / "input"
@@ -176,6 +181,7 @@ def test_trim_filter_leaves_uncut_edges_unfaded() -> None:
     assert "afade=t=out" in tail_only and "afade=t=in" not in tail_only
 
 
+@requires_pinned_toolchain
 def test_render_extreme_crest_source_fails_closed_when_target_is_unreachable(tmp_path: Path) -> None:
     """A source silent 99.5% of the time cannot hold -16 LUFS under -1 dBTP.
 
@@ -198,6 +204,7 @@ def test_render_extreme_crest_source_fails_closed_when_target_is_unreachable(tmp
     assert error.value.code == "QA_FAILED"
 
 
+@requires_pinned_toolchain
 def test_render_trimmed_stereo_pcm24_preserves_channel_count_and_duration(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -214,6 +221,7 @@ def test_render_trimmed_stereo_pcm24_preserves_channel_count_and_duration(tmp_pa
     assert result.qa.checks["lossless_24_bit_format"] is True
 
 
+@requires_pinned_toolchain
 def test_render_refuses_to_overwrite_an_existing_output(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -234,6 +242,7 @@ def test_render_refuses_to_overwrite_an_existing_output(tmp_path: Path) -> None:
     assert output.read_bytes() == b"keep-existing"
 
 
+@requires_pinned_toolchain
 def test_render_rejects_source_changed_after_validation_before_running_ffmpeg(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -252,6 +261,7 @@ def test_render_rejects_source_changed_after_validation_before_running_ffmpeg(tm
     assert error.value.code == "SOURCE_CHANGED"
 
 
+@requires_pinned_toolchain
 def test_render_deadline_includes_source_hashing_before_running_ffmpeg(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -272,6 +282,7 @@ def test_render_deadline_includes_source_hashing_before_running_ffmpeg(tmp_path:
     assert error.value.code == "PROCESS_TIMEOUT"
 
 
+@requires_pinned_toolchain
 def test_render_preserves_a_file_created_at_the_target_after_initial_check(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()
@@ -296,6 +307,7 @@ def test_render_preserves_a_file_created_at_the_target_after_initial_check(tmp_p
     assert output.read_bytes() == b"written-by-another-job"
 
 
+@requires_pinned_toolchain
 def test_render_rejects_predicted_output_over_cap_before_invoking_ffmpeg(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     input_root.mkdir()

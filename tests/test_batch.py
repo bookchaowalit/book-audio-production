@@ -8,11 +8,17 @@ from jsonschema import Draft202012Validator
 
 from book_audio_production.artifacts import verify_manifest
 from book_audio_production.batch import _publish_batch_directory
-from book_audio_production.errors import AudioError
 from book_audio_production.engine import process_batch
-from book_audio_production.models import AudioBatch, AudioLimits, LoudnessTargets, TrackRequest
+from book_audio_production.errors import AudioError
+from book_audio_production.models import (
+    AudioBatch,
+    AudioLimits,
+    LoudnessTargets,
+    TrackRequest,
+)
 from book_audio_production.report import serialize_result
 from tests.audio_fixtures import create_synthetic_audio
+from tests.toolchain import requires_pinned_toolchain
 
 
 def test_batch_directory_publish_retries_transient_os_errors(tmp_path: Path, monkeypatch) -> None:
@@ -53,6 +59,7 @@ def test_batch_directory_publish_does_not_overwrite_existing_output(tmp_path: Pa
     assert (destination / "keep.txt").read_text(encoding="utf-8") == "existing"
 
 
+@requires_pinned_toolchain
 def test_process_batch_publishes_manifest_and_keeps_per_track_failure_local(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     output_root = tmp_path / "output"
@@ -81,6 +88,7 @@ def test_process_batch_publishes_manifest_and_keeps_per_track_failure_local(tmp_
     assert "output" not in serialize_result(result)["tracks"][0]["output_relative_path"]
 
 
+@requires_pinned_toolchain
 def test_process_batch_publishes_sanitized_rejection_without_audio_outputs(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     output_root = tmp_path / "output"
@@ -100,3 +108,30 @@ def test_process_batch_publishes_sanitized_rejection_without_audio_outputs(tmp_p
     assert payload["tracks"][0]["source_relative"] is None
     assert "private" not in payload_text and payload["tracks"][0]["output_relative_path"] is None
     assert verify_manifest(manifest_path).passed is True
+
+
+def test_batch_directory_publish_does_not_replace_existing_empty_output(tmp_path: Path) -> None:
+    staged = tmp_path / ".staged"
+    destination = tmp_path / "batch"
+    staged.mkdir()
+    (staged / "result.json").write_text("{}", encoding="utf-8")
+    destination.mkdir()
+
+    with pytest.raises(AudioError) as error:
+        _publish_batch_directory(staged, destination, deadline=time.monotonic() + 2)
+
+    assert error.value.code == "OUTPUT_EXISTS"
+    assert list(destination.iterdir()) == []
+    assert (staged / "result.json").is_file()
+
+
+def test_batch_directory_publish_moves_staged_batch_into_place(tmp_path: Path) -> None:
+    staged = tmp_path / ".staged"
+    destination = tmp_path / "batch"
+    staged.mkdir()
+    (staged / "result.json").write_text("{}", encoding="utf-8")
+
+    _publish_batch_directory(staged, destination, deadline=time.monotonic() + 2)
+
+    assert (destination / "result.json").read_text(encoding="utf-8") == "{}"
+    assert not staged.exists()

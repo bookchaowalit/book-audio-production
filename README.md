@@ -115,6 +115,18 @@ batch, 1 replay hit, 0 QA failures, 633,297 bytes written, and
 `model_calls=0`. Wall time was 14.171 s and measured CPU time was 5.547 s;
 monetary cost remains `null`/unknown without a rate card.
 
+## Tests and CI
+
+```powershell
+python -m pytest -q
+```
+
+Tests that render, replay, or benchmark real audio assert results against the
+exact FFmpeg/FFprobe build pinned in `toolchain.lock.json`; on a host without
+that build they skip with `TOOL_VERSION_MISMATCH` or `TOOL_NOT_FOUND` as the
+reason. GitHub Actions (`.github/workflows/ci.yml`) runs the rest of the suite
+on Ubuntu.
+
 ## Audio review status
 
 The tests generate tones and pink noise and measure numeric loudness, true peak,

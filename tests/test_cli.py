@@ -3,6 +3,7 @@ from pathlib import Path
 
 from book_audio_production.cli import exit_code_for_status, main
 from tests.audio_fixtures import create_synthetic_audio
+from tests.toolchain import requires_pinned_toolchain
 
 
 def test_status_exit_codes_are_stable() -> None:
@@ -17,6 +18,7 @@ def test_main_help_is_successful(capsys) -> None:
     assert "usage: book-audio" in capsys.readouterr().out
 
 
+@requires_pinned_toolchain
 def test_cli_runs_local_manifest_and_verifies_result(tmp_path: Path, capsys) -> None:
     input_root = tmp_path / "input"
     output_root = tmp_path / "output"

@@ -2,6 +2,9 @@ from pathlib import Path
 
 from book_audio_production.probe import probe_audio, verified_toolchain
 from book_audio_production.runner import run_process
+from tests.toolchain import requires_pinned_toolchain
+
+pytestmark = requires_pinned_toolchain
 
 
 def test_pinned_ffmpeg_toolchain_is_available() -> None:

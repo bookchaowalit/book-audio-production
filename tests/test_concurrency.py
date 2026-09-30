@@ -2,14 +2,21 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from book_audio_production.engine import process_batch
-from book_audio_production.models import AudioBatch, AudioLimits, LoudnessTargets, TrackRequest
+from book_audio_production.models import (
+    AudioBatch,
+    AudioLimits,
+    LoudnessTargets,
+    TrackRequest,
+)
 from tests.audio_fixtures import create_synthetic_audio
+from tests.toolchain import requires_pinned_toolchain
 
 
 def run_batch_in_child_process(arguments):
     return process_batch(*arguments)
 
 
+@requires_pinned_toolchain
 def test_two_same_key_processes_publish_once(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
     output_root = tmp_path / "output"

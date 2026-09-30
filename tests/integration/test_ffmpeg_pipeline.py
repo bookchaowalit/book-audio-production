@@ -1,11 +1,18 @@
-import json
 from pathlib import Path
 
-from book_audio_production.models import AudioLimits, LoudnessTargets, TrackRequest, TrimRange
+from book_audio_production.engine import render_track
+from book_audio_production.models import (
+    AudioLimits,
+    LoudnessTargets,
+    TrackRequest,
+    TrimRange,
+)
 from book_audio_production.runner import run_process
 from book_audio_production.validation import validate_track
-from book_audio_production.engine import render_track
 from tests.audio_fixtures import create_synthetic_audio
+from tests.toolchain import requires_pinned_toolchain
+
+pytestmark = requires_pinned_toolchain
 
 
 def test_sine_and_noise_round_trip_through_normalization(tmp_path: Path) -> None:
