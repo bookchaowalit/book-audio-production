@@ -59,3 +59,15 @@ CI; real-audio tests still only run on the Windows host with the pinned FFmpeg
   (it passes against this checkout).
 - Ruff widened to `SIM`, `PT` and `RUF`; fixed all 23 findings (split
   composite test assertions, parametrize name tuples, `contextlib.suppress`).
+
+## Done in this pass (pass 4: edge-case bug hunt)
+
+- Fixed: track ids differing only in case (`Intro`/`intro`) mastered from one
+  source were both accepted; their outputs `<track_id>-<hash>.<ext>` are the
+  same file on macOS/Windows, so one silently overwrote the other. Track-id
+  uniqueness is now case-insensitive (`DUPLICATE_TRACK_ID`).
+- Fixed: batch ids `CON`, `nul`, `COM1`... named an output folder and lock
+  file Windows cannot create; the parser and `audio-batch.v1` schema reject
+  them. Regression tests for both.
+- Checked and found already safe: NaN/inf targets and measurements, trim
+  sample math and bounds, probe metadata, source traversal, report encoding.

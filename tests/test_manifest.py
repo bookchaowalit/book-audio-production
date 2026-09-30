@@ -137,3 +137,34 @@ def test_rejects_numbers_that_overflow_finite_float_range() -> None:
         parse_manifest(payload)
 
     assert error.value.code == "INVALID_MANIFEST"
+
+
+def test_rejects_track_ids_that_differ_only_in_case() -> None:
+    # Output files are "<track_id>-<source hash>"; on macOS/Windows "Intro-…" and
+    # "intro-…" from one source are the same file and the second overwrites the first.
+    tracks = ",".join(
+        f'{{"track_id":"{track_id}","source":"a.wav","targets":{{"integrated_lufs":{lufs},'
+        '"true_peak_dbtp":-1},"output_format":"flac"}'
+        for track_id, lufs in (("Intro", -16), ("intro", -14))
+    )
+
+    with pytest.raises(AudioError) as error:
+        parse_manifest(manifest(tracks))
+
+    assert error.value.code == "DUPLICATE_TRACK_ID"
+
+
+@pytest.mark.parametrize("batch_id", ["CON", "nul", "Aux", "COM1", "lpt9"])
+def test_rejects_batch_ids_that_are_windows_device_names(batch_id: str) -> None:
+    payload = manifest().replace(b'"pilot-1"', f'"{batch_id}"'.encode())
+    schema = json.loads((Path(__file__).parents[1] / "schemas" / "audio-batch.v1.schema.json").read_text(encoding="utf-8"))
+
+    with pytest.raises(AudioError) as error:
+        parse_manifest(payload)
+
+    assert error.value.code == "INVALID_MANIFEST"
+    assert list(Draft202012Validator(schema).iter_errors(json.loads(payload)))
+
+
+def test_accepts_batch_ids_that_only_start_with_a_device_name() -> None:
+    assert parse_manifest(manifest().replace(b'"pilot-1"', b'"console-1"')).batch_id == "console-1"
