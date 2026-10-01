@@ -8,7 +8,6 @@ from book_audio_production.errors import AudioError
 from book_audio_production.models import (
     AudioBatchResult,
     AudioMeasurement,
-    ErrorInfo,
     LoudnessTargets,
     QAResult,
     TrackResult,

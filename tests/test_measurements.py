@@ -35,7 +35,11 @@ def test_loudnorm_parser_rejects_non_finite_or_incomplete_data(stderr: str) -> N
 
 
 def test_ebur128_parser_reads_final_summary_measurements() -> None:
-    stderr = """[Parsed_ebur128_0] frame log\nSummary:\nIntegrated loudness:\n  I: -16.2 LUFS\n  Threshold: -27.0 LUFS\nLoudness range:\n  LRA: 4.1 LU\nTrue peak:\n  Peak: -0.3 dBFS\n[Parsed_astats_1 @ 0x1] Overall\n[Parsed_astats_1 @ 0x1] Peak level dB: -0.5\n"""
+    stderr = (
+        "[Parsed_ebur128_0] frame log\nSummary:\nIntegrated loudness:\n  I: -16.2 LUFS\n  Threshold: -27.0 LUFS\n"
+        "Loudness range:\n  LRA: 4.1 LU\nTrue peak:\n  Peak: -0.3 dBFS\n"
+        "[Parsed_astats_1 @ 0x1] Overall\n[Parsed_astats_1 @ 0x1] Peak level dB: -0.5\n"
+    )
 
     result = parse_ebur128_measurement(stderr, duration_seconds=1.5)
 

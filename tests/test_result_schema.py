@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-
 SCHEMA_PATH = Path(__file__).parents[1] / "schemas" / "audio-batch-result.v1.schema.json"
 
 

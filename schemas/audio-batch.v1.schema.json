@@ -7,7 +7,12 @@
   "required": ["schema_version", "batch_id", "tracks"],
   "properties": {
     "schema_version": {"const": "audio-batch.v1"},
-    "batch_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "batch_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "not": {"pattern": "^([Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])$"},
+      "description": "Names the output folder, so Windows device names (CON, NUL, COM1, ...) are rejected."
+    },
     "tracks": {
       "type": "array",
       "minItems": 1,

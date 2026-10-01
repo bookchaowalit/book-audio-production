@@ -13,6 +13,11 @@ from .models import AudioBatch, LoudnessTargets, TrackRequest, TrimRange
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z", re.ASCII)
 _FORMATS = {"flac", "wav_pcm24"}
+# The batch id names the output folder and lock file; Windows cannot create a
+# folder or file whose stem is one of these device names.
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(10)), *(f"LPT{n}" for n in range(10))}
+)
 MAX_MANIFEST_BYTES = 1024 * 1024
 
 
@@ -93,6 +98,8 @@ def parse_manifest(payload: bytes) -> AudioBatch:
     if root["schema_version"] != "audio-batch.v1":
         raise AudioError("UNSUPPORTED_SCHEMA", "Unsupported audio batch schema version")
     batch_id = _identifier(root["batch_id"], "batch_id")
+    if batch_id.upper() in _WINDOWS_RESERVED_NAMES:
+        _invalid("batch_id must not be a reserved Windows device name")
     raw_tracks = root["tracks"]
     if not isinstance(raw_tracks, list) or not 1 <= len(raw_tracks) <= 20:
         _invalid("tracks must contain between 1 and 20 items")
@@ -107,9 +114,12 @@ def parse_manifest(payload: bytes) -> AudioBatch:
             "track",
         )
         track_id = _identifier(track["track_id"], "track_id")
-        if track_id in track_ids:
-            raise AudioError("DUPLICATE_TRACK_ID", "Track identifiers must be unique within a batch")
-        track_ids.add(track_id)
+        # Output files are named "<track_id>-<source hash>", so "Intro" and
+        # "intro" mastered from one source would overwrite each other on
+        # case-insensitive file systems (macOS, Windows).
+        if track_id.casefold() in track_ids:
+            raise AudioError("DUPLICATE_TRACK_ID", "Track identifiers must be unique within a batch, ignoring case")
+        track_ids.add(track_id.casefold())
 
         source = track["source"]
         if not isinstance(source, str) or not source.strip():

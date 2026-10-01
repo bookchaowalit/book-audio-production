@@ -12,6 +12,7 @@ from .errors import AudioError
 from .locking import exclusive_lock
 from .models import AudioBatch, AudioBatchResult, AudioLimits
 from .report import deserialize_result
+from .toolchain_lock import pinned_versions
 from .validation import validate_output_locations, validate_roots
 
 
@@ -23,19 +24,7 @@ def _remaining(deadline: float) -> float:
 
 
 def _pinned_versions() -> tuple[str, str]:
-    lock_path = Path(__file__).parents[2] / "toolchain.lock.json"
-    try:
-        payload = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        raise AudioError("TOOLCHAIN_LOCK_INVALID", "Pinned media tool versions cannot be read") from None
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != "audio-toolchain.v1"
-        or not isinstance(payload.get("ffmpeg_version"), str)
-        or not isinstance(payload.get("ffprobe_version"), str)
-    ):
-        raise AudioError("TOOLCHAIN_LOCK_INVALID", "Pinned media tool versions are invalid")
-    return payload["ffmpeg_version"], payload["ffprobe_version"]
+    return pinned_versions()
 
 
 def _load_exact_replay(

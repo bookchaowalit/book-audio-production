@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Literal
 
 OutputFormat = Literal["flac", "wav_pcm24"]
 BatchStatus = Literal["accepted", "rejected", "completed_with_errors"]

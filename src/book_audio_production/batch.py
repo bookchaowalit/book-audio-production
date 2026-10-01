@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import json
-import math
 import os
 import shutil
 import tempfile
@@ -136,6 +137,20 @@ def _rejected_track(request: TrackRequest, error: AudioError, seconds: float) ->
     )
 
 
+def _deadline_runner(deadline: float, calls: list):
+    """Return a process runner bounded by ``deadline`` that records every result in ``calls``."""
+
+    def tracked_runner(argv, timeout_seconds, output_limit_bytes):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
+        result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
+        calls.append(result)
+        return result
+
+    return tracked_runner
+
+
 def _validate_result_cpu(results) -> tuple[float | None, str]:
     if not results or any(result.measurement_status != "measured" or result.cpu_seconds is None for result in results):
         return None, "unavailable"
@@ -152,7 +167,7 @@ def process_batch_once(
     started_at: float | None = None,
 ) -> AudioBatchResult:
     """Stage one batch attempt and atomically expose it only after verification."""
-    from .limits import validate_batch_capacity, validate_limits
+    from .limits import validate_limits
 
     normalized = _canonical_batch(batch)
     validate_limits(limits)
@@ -184,10 +199,8 @@ def process_batch_once(
         if stage_dir.exists() and not stage_dir.is_symlink():
             shutil.rmtree(stage_dir, ignore_errors=True)
         for directory in (staging_root, staging_root.parent):
-            try:
+            with contextlib.suppress(OSError):
                 directory.rmdir()
-            except OSError:
-                pass
 
 
 def discard_incomplete_staging(output_root: Path, batch_id: str) -> None:
@@ -205,12 +218,20 @@ def discard_incomplete_staging(output_root: Path, batch_id: str) -> None:
 def _publish_batch_directory(stage_dir: Path, batch_dir: Path, *, deadline: float) -> None:
     """Atomically publish a verified batch, retrying short-lived filesystem errors."""
     for attempt in range(4):
+        # POSIX rename() silently replaces an existing empty directory, so an
+        # existing destination is refused up front; the batch lock is held.
+        if os.path.lexists(batch_dir):
+            raise AudioError("OUTPUT_EXISTS", "Batch output already exists")
         try:
             os.rename(stage_dir, batch_dir)
             return
         except FileExistsError:
             raise AudioError("OUTPUT_EXISTS", "Batch output already exists") from None
-        except OSError:
+        except OSError as error:
+            # POSIX reports a non-empty destination directory as ENOTEMPTY
+            # (or EEXIST) instead of FileExistsError.
+            if error.errno in (errno.ENOTEMPTY, errno.EEXIST):
+                raise AudioError("OUTPUT_EXISTS", "Batch output already exists") from None
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AudioError("PROCESS_TIMEOUT", "Audio batch exceeded its time limit", retryable=True) from None
@@ -256,13 +277,7 @@ def _process_batch_in_stage(
             process_results[f"wall:{request.track_id}"] = [max(0.0, time.monotonic() - track_start)]
             continue
 
-        def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            remaining = track_deadline - time.monotonic()
-            if remaining <= 0:
-                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
-            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
-            calls.append(result)
-            return result
+        tracked_runner = _deadline_runner(track_deadline, calls)
 
         try:
             item = validate_track(
@@ -319,13 +334,7 @@ def _process_batch_in_stage(
             track_results.append(_rejected_track(request, error, time.monotonic() - track_start))
             continue
 
-        def tracked_runner(argv, timeout_seconds, output_limit_bytes):
-            remaining = track_deadline - time.monotonic()
-            if remaining <= 0:
-                raise AudioError("PROCESS_TIMEOUT", "Audio track exceeded its time limit", retryable=True)
-            result = run_process(argv, min(timeout_seconds, remaining), output_limit_bytes)
-            calls.append(result)
-            return result
+        tracked_runner = _deadline_runner(track_deadline, calls)
 
         extension = ".flac" if request.output_format == "flac" else ".wav"
         filename = f"{request.track_id}-{item.source_sha256[:12]}{extension}"

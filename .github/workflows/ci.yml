@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Tests that render or replay real audio assert results against the exact
+    # FFmpeg/FFprobe build pinned in toolchain.lock.json (a Windows build), so
+    # they skip here with an explicit reason. Everything else runs.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: python -m pip install -e ".[test]"
+
+      - name: Lint
+        run: python -m ruff check src tests
+
+      - name: CLI smoke test
+        run: book-audio --help
+
+      - name: Wheel install reads the packaged toolchain lock
+        run: |
+          python -m pip wheel --no-deps -w dist .
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install --no-deps dist/*.whl
+          cd /tmp && /tmp/wheel-env/bin/python -c "from book_audio_production.toolchain_lock import pinned_versions; print(pinned_versions()[0])"
+
+      - name: Run tests
+        run: python -m pytest -q

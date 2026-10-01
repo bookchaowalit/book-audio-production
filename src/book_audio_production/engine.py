@@ -15,8 +15,6 @@ from .measurements import parse_ebur128_measurement, parse_loudnorm_measurement
 from .models import (
     AudioMeasurement,
     CommandRunner,
-    ErrorInfo,
-    LoudnessTargets,
     ProbeInfo,
     QAResult,
     TrackResult,
@@ -397,7 +395,8 @@ def render_track(
             raise AudioError("QA_FAILED", "Rendered audio did not meet its quality checks")
 
         cpu_values = [result.cpu_seconds for result in results]
-        measurement_status = "measured" if all(result.measurement_status == "measured" for result in results) and all(value is not None for value in cpu_values) else "unavailable"
+        all_measured = all(result.measurement_status == "measured" for result in results)
+        measurement_status = "measured" if all_measured and all(value is not None for value in cpu_values) else "unavailable"
         cpu_seconds = sum(value for value in cpu_values if value is not None) if measurement_status == "measured" else None
         output_hash = _hash_file(staged_output, deadline=track_deadline)
         relative_source = Path(track.request.source).as_posix()

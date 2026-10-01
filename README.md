@@ -17,7 +17,8 @@ ffprobe -version
 book-audio --help
 ```
 
-The executable versions must match [`toolchain.lock.json`](toolchain.lock.json).
+The executable versions must match [`toolchain.lock.json`](src/book_audio_production/toolchain.lock.json)
+(shipped inside the package, so installed wheels use the same pins).
 The application does not download tools or access network media. FFprobe and
 FFmpeg are run as local processes with bounded time and captured output.
 
@@ -114,6 +115,32 @@ batch and follow-up partial-batch check reported 21 accepted outputs total
 batch, 1 replay hit, 0 QA failures, 633,297 bytes written, and
 `model_calls=0`. Wall time was 14.171 s and measured CPU time was 5.547 s;
 monetary cost remains `null`/unknown without a rate card.
+
+## Ownership boundary
+
+This repository owns the `audio-batch.v1` contract (batch trim plus
+per-track loudness targets, `book-audio run`) and the FFmpeg build pinned in
+`src/book_audio_production/toolchain.lock.json`. `book-production-platform` owns the separate
+`audio-ir.v1` Audio Master (one WAV, fixed presets). The two share FFmpeg
+loudness normalisation but are not forks of each other: add batch features
+here and preset-mastering features there. The platform's
+`scripts/audio_boundary_check.py --sibling <this checkout>` fails if either
+package starts handling the other's contract or importing the other package.
+
+## Tests and CI
+
+```powershell
+python -m pip install -e ".[test]"
+python -m pytest -q
+python -m ruff check src tests
+```
+
+Ruff settings live in `pyproject.toml`. Tests that render, replay, or benchmark real audio assert results against the
+exact FFmpeg/FFprobe build pinned in `toolchain.lock.json`; on a host without
+that build they skip with `TOOL_VERSION_MISMATCH` or `TOOL_NOT_FOUND` as the
+reason. GitHub Actions (`.github/workflows/ci.yml`) runs Ruff and the rest of
+the suite on Ubuntu, and checks that an installed wheel finds the packaged
+toolchain lock.
 
 ## Audio review status
 
