@@ -120,7 +120,7 @@ monetary cost remains `null`/unknown without a rate card.
 
 This repository owns the `audio-batch.v1` contract (batch trim plus
 per-track loudness targets, `book-audio run`) and the FFmpeg build pinned in
-`toolchain.lock.json`. `book-production-platform` owns the separate
+`src/book_audio_production/toolchain.lock.json`. `book-production-platform` owns the separate
 `audio-ir.v1` Audio Master (one WAV, fixed presets). The two share FFmpeg
 loudness normalisation but are not forks of each other: add batch features
 here and preset-mastering features there. The platform's
