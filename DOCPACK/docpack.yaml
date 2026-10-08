@@ -1,0 +1,8 @@
+system_id: bookchaowalit/book-apps/tools/book-audio-production
+prefix: CARD
+brand: "AUDIO PRODUCTION"
+subtitle: "เตรียมไฟล์เสียงเป็น batch แบบ deterministic: ตัด ปรับ loudness ตรวจ QA"
+footer: "Book Audio Production — Product Card"
+color: "#2f4b6e"
+audience: internal
+tier: L0
