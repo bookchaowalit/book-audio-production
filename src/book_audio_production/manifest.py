@@ -15,9 +15,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,64}\Z", re.ASCII)
 _FORMATS = {"flac", "wav_pcm24"}
 # The batch id names the output folder and lock file; Windows cannot create a
 # folder or file whose stem is one of these device names.
-_WINDOWS_RESERVED_NAMES = frozenset(
-    {"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(10)), *(f"LPT{n}" for n in range(10))}
-)
+_WINDOWS_RESERVED_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{n}" for n in range(10)), *(f"LPT{n}" for n in range(10))})
 MAX_MANIFEST_BYTES = 1024 * 1024
 
 

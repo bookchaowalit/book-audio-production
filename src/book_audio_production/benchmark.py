@@ -66,10 +66,7 @@ def run_benchmark(output: Path, samples: int, limits: AudioLimits) -> BenchmarkR
     tone_path = input_root / "tone.wav"
     _create_tone(tone_path)
     targets = LoudnessTargets(-18, -1, None)
-    requests = tuple(
-        TrackRequest(f"sample-{index + 1:02d}", "tone.wav", None, targets, "flac")
-        for index in range(samples)
-    )
+    requests = tuple(TrackRequest(f"sample-{index + 1:02d}", "tone.wav", None, targets, "flac") for index in range(samples))
     accepted_batch = AudioBatch("benchmark-accepted", requests)
     accepted_result = process_batch(accepted_batch, input_root, run_root, limits)
     replay_result = process_batch(accepted_batch, input_root, run_root, limits)

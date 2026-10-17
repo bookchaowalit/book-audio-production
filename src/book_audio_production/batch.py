@@ -309,9 +309,7 @@ def _process_batch_in_stage(
     if predicted_batch_bytes > limits.max_output_bytes_per_batch:
         raise AudioError("RESOURCE_LIMIT_EXCEEDED", "Batch output may exceed its configured size limit")
 
-    fingerprint = _fingerprint(
-        normalized, limits, toolchain.ffmpeg_version, toolchain.ffprobe_version, source_hashes
-    )
+    fingerprint = _fingerprint(normalized, limits, toolchain.ffmpeg_version, toolchain.ffprobe_version, source_hashes)
     artifact_dir = stage_dir / "artifacts"
     try:
         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -356,10 +354,7 @@ def _process_batch_in_stage(
                 replace(
                     rendered,
                     output_relative_path=relative_output,
-                    wall_seconds=(
-                        process_results.get(f"wall:{request.track_id}", [0.0])[0]
-                        + max(0.0, time.monotonic() - track_start)
-                    ),
+                    wall_seconds=(process_results.get(f"wall:{request.track_id}", [0.0])[0] + max(0.0, time.monotonic() - track_start)),
                     cpu_seconds=cpu_seconds,
                     measurement_status=measurement_status,
                 )

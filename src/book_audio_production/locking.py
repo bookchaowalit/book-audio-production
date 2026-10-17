@@ -16,12 +16,7 @@ from .errors import AudioError
 @contextmanager
 def exclusive_lock(path: Path, *, wait_seconds: float = 30.0) -> Iterator[None]:
     """Acquire an O_EXCL lock, wait briefly for active runs, and preserve stale locks."""
-    if (
-        isinstance(wait_seconds, bool)
-        or not isinstance(wait_seconds, (int, float))
-        or not math.isfinite(wait_seconds)
-        or wait_seconds < 0
-    ):
+    if isinstance(wait_seconds, bool) or not isinstance(wait_seconds, (int, float)) or not math.isfinite(wait_seconds) or wait_seconds < 0:
         raise AudioError("INVALID_LIMITS", "Lock wait duration must be a non-negative finite number")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,11 +48,7 @@ def exclusive_lock(path: Path, *, wait_seconds: float = 30.0) -> Iterator[None]:
         try:
             current_stat = path.stat()
             current_token = path.read_text(encoding="ascii").strip()
-            if (
-                current_token == token
-                and current_stat.st_dev == owned_stat.st_dev
-                and current_stat.st_ino == owned_stat.st_ino
-            ):
+            if current_token == token and current_stat.st_dev == owned_stat.st_dev and current_stat.st_ino == owned_stat.st_ino:
                 path.unlink()
         except (OSError, UnboundLocalError):
             pass
