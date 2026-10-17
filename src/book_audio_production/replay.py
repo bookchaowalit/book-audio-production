@@ -94,9 +94,7 @@ def process_batch(
     )
     _remaining(deadline)
     manifest = output_path / normalized.batch_id / "result.json"
-    prior = _load_exact_replay(
-        manifest, normalized.batch_id, fingerprint, ffmpeg_version, ffprobe_version, deadline=deadline
-    )
+    prior = _load_exact_replay(manifest, normalized.batch_id, fingerprint, ffmpeg_version, ffprobe_version, deadline=deadline)
     if prior is not None:
         return prior
 

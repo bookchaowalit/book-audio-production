@@ -221,9 +221,7 @@ def render_track(
         results.append(pre_peak_pass)
         expected_samples = _effective_samples(track)
         expected_duration = expected_samples / track.probe.sample_rate
-        pre_peaks = parse_ebur128_measurement(
-            pre_peak_pass.stderr.decode("utf-8", errors="replace"), expected_duration
-        )
+        pre_peaks = parse_ebur128_measurement(pre_peak_pass.stderr.decode("utf-8", errors="replace"), expected_duration)
         pre_measurement = _combine_pre_measurement(analysis, pre_peaks, expected_duration)
 
         measured_lra = analysis.lra_lu
@@ -352,9 +350,7 @@ def render_track(
                 post_peak_pass.stderr.decode("utf-8", errors="replace"), post_probe.duration_seconds
             )
             if attempt == 0:
-                normalization_type = parse_loudnorm_measurement(
-                    render.stderr.decode("utf-8", errors="replace")
-                ).normalization_type
+                normalization_type = parse_loudnorm_measurement(render.stderr.decode("utf-8", errors="replace")).normalization_type
             else:
                 normalization_type = _GAIN_LIMITER_NORMALIZATION_TYPE
 
@@ -367,10 +363,8 @@ def render_track(
             checks = {
                 "integrated_loudness_within_tolerance": abs(post_measurement.integrated_lufs - targets.integrated_lufs)
                 <= _LOUDNESS_TOLERANCE_LU,
-                "true_peak_under_ceiling": post_measurement.true_peak_dbtp
-                <= targets.true_peak_dbtp + _TRUE_PEAK_TOLERANCE_DB,
-                "duration_within_tolerance": abs(post_probe.duration_seconds - expected_duration)
-                <= expected_duration_tolerance,
+                "true_peak_under_ceiling": post_measurement.true_peak_dbtp <= targets.true_peak_dbtp + _TRUE_PEAK_TOLERANCE_DB,
+                "duration_within_tolerance": abs(post_probe.duration_seconds - expected_duration) <= expected_duration_tolerance,
                 "channels_preserved": post_probe.channels == track.probe.channels,
                 "sample_rate_preserved": post_probe.sample_rate == track.probe.sample_rate,
                 "lossless_24_bit_format": format_ok,

@@ -96,10 +96,7 @@ def validate_track(
     numeric_targets = (targets.integrated_lufs, targets.true_peak_dbtp)
     if targets.lra_lu is not None:
         numeric_targets += (targets.lra_lu,)
-    if any(
-        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
-        for value in numeric_targets
-    ):
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in numeric_targets):
         raise AudioError("INVALID_TARGET", "Loudness targets must be finite numbers")
     if not -70 <= targets.integrated_lufs <= -5 or not -9 <= targets.true_peak_dbtp <= 0:
         raise AudioError("INVALID_TARGET", "Loudness or true-peak target is outside the supported range")
@@ -155,11 +152,7 @@ def validate_track(
             min(output_limit_bytes, limits.process_output_limit_bytes),
         )
 
-    probe = (
-        probe_audio(source_path, bounded_runner)
-        if toolchain is None
-        else probe_audio(source_path, bounded_runner, toolchain=toolchain)
-    )
+    probe = probe_audio(source_path, bounded_runner) if toolchain is None else probe_audio(source_path, bounded_runner, toolchain=toolchain)
     if probe.channels not in (1, 2) or probe.sample_rate <= 0:
         raise AudioError("UNSUPPORTED_STREAM", "Only mono or stereo audio streams are supported")
     if not math.isfinite(probe.duration_seconds) or probe.duration_seconds <= 0:

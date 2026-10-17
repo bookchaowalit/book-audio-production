@@ -43,9 +43,7 @@ def test_cli_runs_local_manifest_and_verifies_result(tmp_path: Path, capsys) -> 
         encoding="utf-8",
     )
 
-    run_code = main(
-        ["run", "--manifest", str(manifest), "--input-root", str(input_root), "--output-root", str(output_root), "--json"]
-    )
+    run_code = main(["run", "--manifest", str(manifest), "--input-root", str(input_root), "--output-root", str(output_root), "--json"])
     run_output = capsys.readouterr().out
     result_manifest = output_root / "cli-1" / "result.json"
     verify_code = main(["verify", str(result_manifest)])
@@ -75,9 +73,7 @@ def test_cli_rejects_oversized_manifest_with_stable_code(tmp_path: Path, capsys)
     manifest = tmp_path / "oversized.json"
     manifest.write_bytes(b" " * (1024 * 1024 + 1))
 
-    code = main(
-        ["run", "--manifest", str(manifest), "--input-root", str(tmp_path), "--output-root", str(tmp_path / "out")]
-    )
+    code = main(["run", "--manifest", str(manifest), "--input-root", str(tmp_path), "--output-root", str(tmp_path / "out")])
 
     assert code == 2
     assert "RESOURCE_LIMIT_EXCEEDED" in capsys.readouterr().err

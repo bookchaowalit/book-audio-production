@@ -22,8 +22,8 @@ def test_loudnorm_parser_ignores_surrounding_ffmpeg_logs() -> None:
 @pytest.mark.parametrize(
     "stderr",
     [
-        "{\"input_i\":\"NaN\",\"input_tp\":\"-1\",\"input_thresh\":\"-20\"}",
-        "{\"input_i\":\"-16\",\"input_tp\":\"-1\"}",
+        '{"input_i":"NaN","input_tp":"-1","input_thresh":"-20"}',
+        '{"input_i":"-16","input_tp":"-1"}',
         "no measurement block",
     ],
 )

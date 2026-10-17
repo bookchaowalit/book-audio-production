@@ -68,12 +68,16 @@ def deserialize_result(payload: dict[str, object], *, replay: bool = False) -> A
             return LoudnessTargets(value["integrated_lufs"], value["true_peak_dbtp"], value["lra_lu"])
 
         def measurement(value):
-            return None if value is None else AudioMeasurement(
-                value["integrated_lufs"],
-                value["lra_lu"],
-                value["sample_peak_dbfs"],
-                value["true_peak_dbtp"],
-                value["duration_seconds"],
+            return (
+                None
+                if value is None
+                else AudioMeasurement(
+                    value["integrated_lufs"],
+                    value["lra_lu"],
+                    value["sample_peak_dbfs"],
+                    value["true_peak_dbtp"],
+                    value["duration_seconds"],
+                )
             )
 
         tracks = []
@@ -100,9 +104,7 @@ def deserialize_result(payload: dict[str, object], *, replay: bool = False) -> A
                     cpu_seconds=item["cpu_seconds"],
                     measurement_status=item["measurement_status"],
                     warnings=tuple(item["warnings"]),
-                    error=None if error_data is None else ErrorInfo(
-                        error_data["code"], error_data["message"], error_data["retryable"]
-                    ),
+                    error=None if error_data is None else ErrorInfo(error_data["code"], error_data["message"], error_data["retryable"]),
                 )
             )
         return AudioBatchResult(

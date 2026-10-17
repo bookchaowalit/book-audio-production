@@ -17,9 +17,7 @@ def test_probe_uses_safe_local_argv_and_reads_audio_stream(tmp_path: Path, monke
     source = tmp_path / "sample.wav"
     source.write_bytes(b"audio-data")
     response = {
-        "streams": [
-            {"codec_type": "audio", "codec_name": "pcm_s16le", "channels": 2, "sample_rate": "48000", "duration": "1.25"}
-        ],
+        "streams": [{"codec_type": "audio", "codec_name": "pcm_s16le", "channels": 2, "sample_rate": "48000", "duration": "1.25"}],
         "format": {"duration": "1.25"},
     }
     monkeypatch.setattr("book_audio_production.probe.verified_toolchain", lambda: SimpleNamespace(ffprobe_path="ffprobe"))
